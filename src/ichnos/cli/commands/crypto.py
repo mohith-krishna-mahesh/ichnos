@@ -13,6 +13,7 @@ import ichnos.crypto.classical.symboltable as symboltable
 import ichnos.crypto.classical.transposition as transposition_mod
 import ichnos.crypto.classical.vigenere as vigenere
 import ichnos.crypto.ecc as ecc_mod
+import ichnos.crypto.ecc.point_recovery as ecc_recovery
 import ichnos.crypto.hashing.compute as hash_compute
 import ichnos.crypto.hashing.discrete_log as dlog_mod
 import ichnos.crypto.hashing.identify as hash_identify
@@ -20,7 +21,9 @@ import ichnos.crypto.hashing.length_extension as length_ext_mod
 import ichnos.crypto.jwt as jwt_mod
 import ichnos.crypto.numtheory as numtheory
 import ichnos.crypto.pqc as pqc_mod
+import ichnos.crypto.pqc.ntru_solve as ntru_solve
 import ichnos.crypto.rsa as rsa_mod
+import ichnos.crypto.symmetric.openssl_brute as openssl_brute
 import ichnos.crypto.xor.crib_drag as crib_drag
 import ichnos.crypto.xor.repeating_key as xor_repeating
 import ichnos.crypto.xor.single_byte as xor_single
@@ -37,7 +40,9 @@ rsa_app = typer.Typer(no_args_is_help=True)
 ecc_app = typer.Typer(no_args_is_help=True)
 jwt_app = typer.Typer(no_args_is_help=True)
 pqc_app = typer.Typer(no_args_is_help=True)
+symmetric_app = typer.Typer(no_args_is_help=True)
 
+app.add_typer(symmetric_app, name="symmetric", help="Symmetric cipher analysis and parameter cracking.")
 app.add_typer(xor_app, name="xor", help="XOR cipher cracking and analysis.")
 app.add_typer(
     hash_app, name="hash", help="Hash identification, computation, and extension attacks."
@@ -729,3 +734,156 @@ def cmd_dlog(
         render(res, state.json_mode)
     except Exception as e:
         print_error(str(e))
+
+
+# =============================================================================
+# Symmetric Cracking Commands
+# =============================================================================
+
+
+@symmetric_app.command("openssl-brute")
+@app.command("openssl-brute")
+def cmd_openssl_brute(
+    input_file: str = typer.Argument(..., help="Path to OpenSSL-encrypted binary or ciphertext file"),
+    password: str | None = typer.Option(None, "--password", "-p", help="Specific password to test"),
+    wordlist: str | None = typer.Option(None, "--wordlist", "-w", help="Path or name of password wordlist"),
+    ciphers: str | None = typer.Option(None, "--ciphers", help="Comma-separated ciphers to test"),
+    digests: str | None = typer.Option(None, "--digests", help="Comma-separated digests to test"),
+    iterations: str | None = typer.Option(None, "--iterations", help="Comma-separated PBKDF2 iteration counts"),
+    markers: str | None = typer.Option(None, "--markers", help="Comma-separated plaintext substrings to search"),
+    skip_legacy: bool = typer.Option(False, "--skip-legacy", help="Skip EVP_BytesToKey"),
+    skip_pbkdf2: bool = typer.Option(False, "--skip-pbkdf2", help="Skip PBKDF2"),
+    workers: int = typer.Option(4, "--workers", help="Worker threads"),
+    keep_going: bool = typer.Option(False, "--keep-going", help="Find all valid permutations"),
+):
+    """Brute-force OpenSSL enc parameters (cipher, digest, KDF, iterations, password)."""
+    try:
+        c_list = [c.strip() for c in ciphers.split(",")] if ciphers else None
+        d_list = [d.strip() for d in digests.split(",")] if digests else None
+        it_list = [int(it.strip()) for it in iterations.split(",")] if iterations else None
+        m_list = [m.strip().encode() for m in markers.split(",")] if markers else None
+        pw_list = [password] if password else None
+
+        results = openssl_brute.crack_openssl_params(
+            data_or_path=input_file,
+            passwords=pw_list,
+            wordlist=wordlist,
+            ciphers=c_list,
+            digests=d_list,
+            iterations=it_list,
+            markers=m_list,
+            skip_legacy=skip_legacy,
+            skip_pbkdf2=skip_pbkdf2,
+            workers=workers,
+            keep_going=keep_going,
+        )
+        formatted = [
+            {
+                "label": r.label,
+                "password": r.password,
+                "cipher": r.cipher,
+                "digest": r.digest,
+                "pbkdf2": r.pbkdf2,
+                "iterations": r.iterations,
+                "confidence": r.confidence,
+                "marker": r.marker,
+                "plaintext": r.plaintext[:128].decode(errors="replace"),
+            }
+            for r in results
+        ]
+        res = Result(raw_output={"success": len(results) > 0, "candidates": formatted})
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+
+
+# =============================================================================
+# ECC Point Recovery Commands
+# =============================================================================
+
+
+@ecc_app.command("recover-curve")
+def cmd_ecc_recover_curve(
+    px: int = typer.Option(..., "--px", help="Point P x-coordinate"),
+    py: int = typer.Option(..., "--py", help="Point P y-coordinate"),
+    qx: int = typer.Option(..., "--qx", help="Point Q x-coordinate (2P = Q)"),
+    qy: int = typer.Option(..., "--qy", help="Point Q y-coordinate (2P = Q)"),
+    rx: int = typer.Option(..., "--rx", help="Point R x-coordinate (2Q = R)"),
+    ry: int = typer.Option(..., "--ry", help="Point R y-coordinate (2Q = R)"),
+    cx: int | None = typer.Option(None, "--cx", help="Ciphertext point x (C = k*F)"),
+    cy: int | None = typer.Option(None, "--cy", help="Ciphertext point y (C = k*F)"),
+    k: int | None = typer.Option(None, "--k", help="Scalar multiplier relating C to secret point F"),
+    order: int | None = typer.Option(None, "--order", help="Known curve order"),
+):
+    """Recover elliptic curve modulus p and coefficients (a, b) from 2P=Q, 2Q=R."""
+    try:
+        c_pt = (cx, cy) if cx is not None and cy is not None else None
+        recovered = ecc_recovery.recover_curve_from_doublings(
+            P=(px, py),
+            Q=(qx, qy),
+            R=(rx, ry),
+            C=c_pt,
+            k=k,
+            order=order,
+        )
+        raw_res = {
+            "p": recovered.p,
+            "a": recovered.a,
+            "b": recovered.b,
+            "order": recovered.order,
+            "flag": recovered.flag.decode(errors="replace") if recovered.flag else None,
+            "decrypted_point": (
+                recovered.decrypted_point.x,
+                recovered.decrypted_point.y,
+            )
+            if recovered.decrypted_point
+            else None,
+        }
+        res = Result(raw_output=raw_res)
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+
+
+# =============================================================================
+# PQC NTRU Attack Commands
+# =============================================================================
+
+
+@pqc_app.command("ntru-attack")
+def cmd_pqc_ntru_attack(
+    pk_coeffs: str = typer.Argument(..., help="Comma-separated public key polynomial coefficients"),
+    q: int = typer.Option(..., "--q", help="Modulus q"),
+    n: int | None = typer.Option(None, "--n", help="Polynomial dimension (default: len(pk))"),
+    ct_hex: str | None = typer.Option(None, "--ct", help="Optional hex ciphertext to decrypt via derived AES key"),
+    bound: int = typer.Option(6, "--bound", help="Max coefficient bound for ternary/small vector"),
+    block_size: int = typer.Option(45, "--block-size", help="BKZ block size for SageMath"),
+):
+    """Solve NTRU / negacyclic Ring-LWE instance via block lattice reduction."""
+    try:
+        pk = [int(x.strip()) for x in pk_coeffs.split(",") if x.strip()]
+        ct_bytes = bytes.fromhex(ct_hex) if ct_hex else None
+        solution = ntru_solve.solve_ntru_lattice(
+            pk=pk,
+            q=q,
+            n=n,
+            ciphertext=ct_bytes,
+            bound=bound,
+            block_size=block_size,
+        )
+        if solution:
+            raw = {
+                "success": True,
+                "f": solution.f,
+                "g": solution.g,
+                "method": solution.method,
+                "aes_key": solution.aes_key.hex() if solution.aes_key else None,
+                "plaintext": solution.plaintext.decode(errors="replace") if solution.plaintext else None,
+            }
+        else:
+            raw = {"success": False, "message": "No small private key vector found in lattice"}
+        res = Result(raw_output=raw)
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+

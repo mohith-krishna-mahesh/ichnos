@@ -307,3 +307,31 @@ def cmd_text_reverse(text_input: str | None = typer.Argument(None)):
 
 
 app.command("text-reverse", hidden=True)(cmd_text_reverse)
+
+
+@app.command("ass-qr")
+def cmd_ass_qr(
+    file: str | None = typer.Argument(None, help="Substation Alpha (.ass) subtitle file"),
+    merge: str = typer.Option("or", "--merge", "-m", help="Merge strategy across layers ('or', 'xor', 'none')"),
+    unit: int | None = typer.Option(None, "--unit", "-u", help="Module size in px (auto-detected if omitted)"),
+    canvas: int | None = typer.Option(None, "--canvas", "-c", help="Grid dimension in modules (auto-detected if omitted)"),
+    outdir: str | None = typer.Option(None, "--outdir", "-o", help="Output directory to save extracted PNGs"),
+):
+    """Extracts hidden QR codes and module grids from .ass subtitle vector drawing blocks."""
+    try:
+        from ichnos.stego.ass_subtitle import extract_and_decode_ass
+
+        inp = read_input(file)
+        text_content = inp.data.decode("utf-8", errors="replace")
+        raw = extract_and_decode_ass(
+            text_content,
+            merge=merge,
+            unit=unit,
+            canvas=canvas,
+            out_dir=outdir,
+        )
+        res = Result(raw_output=raw)
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+

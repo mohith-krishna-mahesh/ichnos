@@ -883,6 +883,33 @@ class AutoSolver:
         for b in candidate_bytes:
             if len(b) < 4:
                 continue
+
+            # OpenSSL Salted__ encrypted payload parameter crack
+            if b.startswith(b"Salted__"):
+                try:
+                    from ichnos.crypto.symmetric.openssl_brute import crack_openssl_params
+
+                    cr_results = crack_openssl_params(
+                        b,
+                        workers=2,
+                        ciphers=["aes-256-cbc", "aes-128-cbc"],
+                        digests=["sha256", "md5"],
+                    )
+                    for cr in cr_results:
+                        f = extract_flag(cr.plaintext.decode(errors="replace"))
+                        if f and not is_placeholder_flag(f):
+                            trace.solved = True
+                            trace.flag = f
+                            trace.attack_name = f"OpenSSL Parameter Crack ({cr.cipher}/{cr.digest})"
+                            trace.add_step(
+                                "ATTACK EXECUTION",
+                                f"Recovered OpenSSL encryption parameters: {cr.label}",
+                                [f"Flag: {f}", f"Plaintext: {cr.plaintext[:64]!r}"],
+                            )
+                            return True
+                except Exception:
+                    pass
+
             # Single byte XOR brute force (sample first 512 bytes for speed)
             b_sample = b[:512]
             try:
@@ -1055,6 +1082,32 @@ class AutoSolver:
 
     @classmethod
     def _solve_stego(cls, workspace: ChallengeWorkspace, trace: DeductionTrace) -> bool:
+        # Check all workspace files for ASS vector subtitle files
+        for f in workspace.files:
+            if (
+                f.path.suffix.lower() == ".ass"
+                or b"[Script Info]" in f.data
+                or b"\\p1" in f.data
+            ):
+                try:
+                    from ichnos.stego.ass_subtitle import decode_ass_qr
+
+                    qr_text = decode_ass_qr(f.text)
+                    if qr_text:
+                        flag = extract_flag(qr_text) or qr_text.strip()
+                        if flag and not is_placeholder_flag(flag):
+                            trace.solved = True
+                            trace.flag = flag
+                            trace.attack_name = "ASS Subtitle Vector QR Extraction"
+                            trace.add_step(
+                                "ATTACK EXECUTION",
+                                f"Extracted QR code vector drawings from {f.relative_path}",
+                                [f"Decoded QR payload: {qr_text}"],
+                            )
+                            return True
+                except Exception:
+                    pass
+
         media_files = workspace.media_files
         if not media_files:
             return False

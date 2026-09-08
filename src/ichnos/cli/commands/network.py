@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 import ichnos.network.banner as banner_mod
+import ichnos.network.oracle as oracle_mod
 import ichnos.network.scanner as scanner_mod
 import ichnos.network.tls as tls_mod
 from ichnos.cli.state import state
@@ -60,3 +61,58 @@ def cmd_tls(
         render(res, state.json_mode)
     except Exception as e:
         print_error(str(e))
+
+
+@app.command("oracle-crack")
+def cmd_oracle_crack(
+    url: str = typer.Option(..., "--url", help="Target oracle API URL"),
+    token: str | None = typer.Option(None, "--token", help="Bearer authorization token"),
+    length: int = typer.Option(16, "--length", "-l", help="Expected secret length in bytes"),
+    batch_size: int = typer.Option(16, "--batch-size", "-b", help="Guesses per request batch"),
+    template: str = typer.Option(
+        oracle_mod.DEFAULT_PROGRAM_TEMPLATE,
+        "--template",
+        help="Program format string with {addr} and {guess}",
+    ),
+    success_value: str = typer.Option("HALTED", "--success-value", help="Response value indicating success"),
+    success_key: str | None = typer.Option(None, "--success-key", help="JSON field containing the response value"),
+    request_key: str = typer.Option("programs", "--request-key", help="JSON key for programs"),
+    response_key: str = typer.Option("results", "--response-key", help="JSON key for results"),
+    submit_key: str = typer.Option("key", "--submit-key", help="JSON key for submission"),
+    workers: int = typer.Option(1, "--workers", "-w", help="Concurrent worker threads across addresses"),
+    resume_file: str | None = typer.Option(None, "--resume-file", help="Path to checkpoint progress JSON"),
+    submit: bool = typer.Option(False, "--submit", help="Submit secret to endpoint on finish"),
+):
+    """Recover an unknown byte sequence from a remote side-channel / error oracle."""
+    try:
+        client = oracle_mod.OracleClient(
+            url=url,
+            token=token,
+            request_key=request_key,
+            response_key=response_key,
+            submit_key=submit_key,
+        )
+        resume = oracle_mod.ResumeState(resume_file) if resume_file else None
+        result = oracle_mod.recover_secret(
+            client=client,
+            length=length,
+            batch_size=batch_size,
+            program_template=template,
+            success_value=success_value,
+            success_key=success_key,
+            workers=workers,
+            resume=resume,
+            submit_on_finish=submit,
+        )
+        raw = {
+            "success": True,
+            "secret_hex": result.secret_hex,
+            "recovered_count": result.recovered_count,
+            "total_length": result.total_length,
+            "submit_response": result.submit_response,
+        }
+        res = Result(raw_output=raw)
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+

@@ -51,6 +51,7 @@ from ichnos.cli.commands.reverse import app as reverse_app
 from ichnos.cli.commands.solve import app as solve_app
 from ichnos.cli.commands.stego import app as stego_app
 from ichnos.cli.commands.web import app as web_app
+from ichnos.cli.commands.wordlists import app as wordlists_app
 
 # Register sub-apps
 app.add_typer(
@@ -70,6 +71,7 @@ app.add_typer(network_app, name="network", help="Network reconnaissance tools.")
 app.add_typer(web_app, name="web", help="Web application reconnaissance tools.")
 app.add_typer(osint_app, name="osint", help="Open-source intelligence tools.")
 app.add_typer(password_app, name="password", help="Password cracking and wordlist tools.")
+app.add_typer(wordlists_app, name="wordlists", help="Wordlist repository and retrieval tools.")
 
 # Import analyzers to trigger registry
 

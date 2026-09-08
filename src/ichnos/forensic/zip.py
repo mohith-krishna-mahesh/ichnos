@@ -114,7 +114,14 @@ def is_password_protected(data: bytes) -> bool:
     return protected
 
 
-def crack_zip(data: bytes, wordlist_path: str) -> str | None:
+def crack_zip(data: bytes, wordlist_path: str | None = None) -> str | None:
+    if not wordlist_path:
+        from ichnos.password.wordlists import resolve_wordlist
+        resolved = resolve_wordlist(preferred_name="rockyou.txt")
+        if not resolved:
+            return None
+        wordlist_path = str(resolved)
+
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp.write(data)
         tmp_name = tmp.name

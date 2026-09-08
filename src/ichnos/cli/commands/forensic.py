@@ -55,17 +55,19 @@ def cmd_zip_comments(file: str | None = typer.Argument(None)):
 @zip_app.command("crack")
 def cmd_zip_crack(
     file: str | None = typer.Argument(None),
-    wordlist: str = typer.Option(..., "--wordlist", "-w", help="Path to dictionary wordlist"),
+    wordlist: str | None = typer.Option(None, "--wordlist", "-w", help="Path to dictionary wordlist"),
 ):
     """Cracks encrypted ZIP archive passwords using a wordlist."""
     try:
+        from ichnos.password.wordlists import resolve_wordlist
+        resolved_wl = resolve_wordlist(wordlist, preferred_name="rockyou.txt")
+        if not resolved_wl:
+            print_error("No wordlist provided and no default wordlist found. Run: ichnos wordlists fetch rockyou")
+            return
+
         inp = read_input(file)
-
-        with open(wordlist, encoding="utf-8", errors="ignore") as w:
-            words = [line.strip() for line in w]
-
-        raw = zip_mod.crack_zip(inp.data, words)
-        res = Result(raw_output=raw)
+        raw = zip_mod.crack_zip(inp.data, str(resolved_wl))
+        res = Result(raw_output={"password": raw} if raw else {"error": "Password not found in wordlist"})
         render(res, state.json_mode)
     except Exception as e:
         print_error(str(e))
@@ -174,3 +176,37 @@ def cmd_timestamp(
         render(res, state.json_mode)
     except Exception as e:
         print_error(str(e))
+
+
+@app.command("ssh-key")
+def cmd_ssh_key(
+    file: str | None = typer.Argument(None, help="OpenSSH public key file, known_hosts, or keyscan"),
+    key_type: str = typer.Option("ssh-ed25519", "--type", "-t", help="Key type (ssh-ed25519, ssh-rsa)"),
+    xor_hex: str | None = typer.Option(None, "--xor-hex", help="Hex keystream to XOR with key body"),
+    keyword: str | None = typer.Option(None, "--keyword", "-k", help="Repeating plaintext keyword to XOR"),
+    linear: str | None = typer.Option(None, "--linear", "-l", help="Linear XOR params as 'A,B' for ((i*A + B) & 0xFF)"),
+):
+    """Extracts raw OpenSSH public key bodies and reveals concealed XOR data."""
+    try:
+        from ichnos.forensic.ssh_key import inspect_and_reveal_ssh
+
+        inp = read_input(file)
+        text = inp.data.decode("utf-8", errors="replace")
+        lin_tuple = None
+        if linear:
+            parts = [int(x.strip()) for x in linear.split(",") if x.strip()]
+            if len(parts) == 2:
+                lin_tuple = (parts[0], parts[1])
+
+        raw = inspect_and_reveal_ssh(
+            text,
+            key_type=key_type,
+            xor_hex=xor_hex,
+            keyword=keyword,
+            linear=lin_tuple,
+        )
+        res = Result(raw_output=raw)
+        render(res, state.json_mode)
+    except Exception as e:
+        print_error(str(e))
+

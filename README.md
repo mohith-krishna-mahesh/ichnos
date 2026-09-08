@@ -30,30 +30,76 @@ When analyzing security challenges or conducting triage during competitive CTFs,
 
 ---
 
+## Platform Verification Status
+
+| Platform / Target | Release Asset | Verification Status |
+| :--- | :--- | :--- |
+| **macOS Apple Silicon** (`darwin-arm64`) | `ichnos-macos-arm64` | **TESTED** (Verified on local hardware & full test suite) |
+| **Linux x86_64** (`linux-x86_64`) | `ichnos-linux-x86_64` | **NOT TESTED LOCALLY** (Automated CI build matrix) |
+| **Windows x86_64** (`windows-x86_64`) | `ichnos-windows-x86_64.exe` | **NOT TESTED LOCALLY** (Automated CI build matrix) |
+
+---
+
 ## Quick Start
 
 ### Installation
 
-#### Option 1: Standalone Installer (macOS & Linux)
+#### Option 1: Standalone Binary Installer (macOS & Linux)
+The installer script detects your operating system and architecture, downloads the release binary from GitHub, installs it to `/usr/local/bin` (or `~/.local/bin`), and verifies functionality:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mohith-krishna-mahesh/ichnos/main/scripts/install.sh | bash
 ```
 
-#### Option 2: Homebrew Tap (macOS & Linux)
+#### Option 2: Direct Binary Download
+Pre-compiled standalone onefile binaries with all core modules and themes are available on the [GitHub Releases](https://github.com/mohith-krishna-mahesh/ichnos/releases/latest) page:
+- **macOS (Apple Silicon)**: `ichnos-macos-arm64`
+- **macOS (Intel)**: `ichnos-macos-x86_64`
+- **Linux (x86_64)**: `ichnos-linux-x86_64`
+- **Windows (x86_64)**: `ichnos-windows-x86_64.exe`
+
+After downloading, make the binary executable and move it to your `$PATH`:
 ```bash
-brew tap mohith-krishna-mahesh/ichnos
-brew install ichnos
+chmod +x ichnos-macos-arm64
+mv ichnos-macos-arm64 /usr/local/bin/ichnos
 ```
 
-#### Option 3: With `uv` (Recommended for Python Environments)
+#### Option 3: Python Environment (Source Installation)
+Install directly into your current Python environment using `uv` or `pip`:
 ```bash
-uv tool install ichnos
+# Using uv (recommended)
+git clone https://github.com/mohith-krishna-mahesh/ichnos.git
+cd ichnos
+uv pip install .
+
+# Or standard pip
+pip install .
 ```
 
-#### Option 4: Standard `pip`
+---
+
+### Uninstallation
+
+#### Standalone Binary (macOS & Linux)
+To remove the Ichnos binary and its configuration directory:
 ```bash
-pip install ichnos
+# Remove binary
+sudo rm -f /usr/local/bin/ichnos
+rm -f ~/.local/bin/ichnos
+
+# Remove configuration, custom themes, and fetched wordlists (optional)
+rm -rf ~/.config/ichnos
 ```
+
+#### Python Package
+```bash
+pip uninstall ichnos
+# Or if installed via uv tool:
+uv tool uninstall ichnos
+```
+
+#### Windows
+1. Delete `ichnos.exe` or `ichnos-windows-x86_64.exe` from your target folder.
+2. (Optional) Delete the configuration and theme directory at `%APPDATA%\ichnos` (or `%LOCALAPPDATA%\ichnos`).
 
 ---
 
@@ -149,6 +195,7 @@ The AutoSolver automates multi-step vulnerability correlation across heterogeneo
 | **`web`** | Security header audits, directory fuzzing, parameter harvesting | `headers`, `fuzz`, `extract`, `ssti` | `--wordlist`, `--status`, `--cookie` |
 | **`osint`** | DNS-over-HTTPS queries, WHOIS lookups, certificate logs | `dns`, `whois`, `subdomains` | `--type`, `--server`, `--crtsh` |
 | **`password`** | Rule-based mutation, wordlist combiners, hash matching | `mutate`, `combine`, `crack` | `--rules`, `--hash-type`, `--policy` |
+| **`wordlists`** | System dictionary management & on-demand remote fetch | `list`, `resolve`, `fetch`, `add` | `--refresh`, `--target-dir` |
 | **`reverse`** | Static disassembly, basic blocks, control flow graphs, gadgets | `disasm`, `cfg`, `gadgets`, `hardening` | `--arch`, `--depth`, `--syntax` |
 
 ---

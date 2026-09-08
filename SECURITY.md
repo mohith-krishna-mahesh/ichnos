@@ -2,7 +2,7 @@
 
 ## Scope of Project Ichnos
 
-**Ichnos** is an offensive security analysis, CTF (Capture the Flag) problem-solving, and cryptanalysis toolkit. Its intended usage is inspecting, analyzing, and solving security challenge artifacts, captured network traffic, steganographic media, and ciphertexts in authorized environments.
+**Ichnos** is a security research, CTF (Capture the Flag) problem-solving, and cryptanalysis toolkit. Its intended usage is inspecting, analyzing, and solving security challenge artifacts, captured network traffic, steganographic media, and ciphertexts in authorized environments.
 
 ---
 

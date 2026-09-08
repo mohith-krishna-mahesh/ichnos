@@ -78,3 +78,7 @@ app.add_typer(wordlists_app, name="wordlists", help="Wordlist repository and ret
 
 def app_entry():
     app()
+
+
+if __name__ == "__main__":
+    app_entry()

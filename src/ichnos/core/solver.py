@@ -390,6 +390,63 @@ class AutoSolver:
         ct0: list[int] | None = None
         ct1: int | None = None
 
+        # 0. Check for NTRU / Polynomial Lattice Cryptosystem
+        ntru_poly = None
+        for cand_name in ("pk", "h", "pubkey", "public_key"):
+            cand = params.all_vars.get(cand_name)
+            if isinstance(cand, (list, tuple)) and all(isinstance(x, int) for x in cand) and 4 <= len(cand) <= 1024:
+                ntru_poly = [int(x) for x in cand]
+                break
+
+        if ntru_poly:
+            ntru_q = params.all_vars.get("q")
+            if not ntru_q:
+                for mod_name, mod_val in params.moduli:
+                    if "q" in mod_name.lower():
+                        ntru_q = mod_val
+                        break
+            if ntru_q and isinstance(ntru_q, int):
+                ntru_ct = None
+                ct_cand = params.all_vars.get("ct") or params.all_vars.get("c") or params.all_vars.get("ciphertext")
+                if isinstance(ct_cand, bytes):
+                    ntru_ct = ct_cand
+                elif isinstance(ct_cand, str):
+                    try:
+                        ntru_ct = bytes.fromhex(ct_cand.strip())
+                    except Exception:
+                        pass
+                elif isinstance(ct_cand, int):
+                    ntru_ct = ct_cand.to_bytes((ct_cand.bit_length() + 7) // 8, "big")
+
+                try:
+                    from ichnos.crypto.pqc.ntru_solve import solve_ntru_lattice
+
+                    sol = solve_ntru_lattice(
+                        pk=ntru_poly,
+                        q=ntru_q,
+                        n=len(ntru_poly),
+                        ciphertext=ntru_ct,
+                    )
+                    if sol and sol.plaintext:
+                        pt_text = sol.plaintext.decode(errors="replace")
+                        f = extract_flag(pt_text) or pt_text.strip()
+                        if f and not is_placeholder_flag(f):
+                            trace.solved = True
+                            trace.flag = f
+                            trace.attack_name = "NTRU Negacyclic Lattice Attack"
+                            trace.add_step(
+                                "ATTACK EXECUTION",
+                                "Recovered NTRU private polynomial and decrypted flag",
+                                [
+                                    f"f: {sol.f}",
+                                    f"AES Key: {sol.aes_key.hex() if sol.aes_key else None}",
+                                    f"Flag: {f}",
+                                ],
+                            )
+                            return True
+                except Exception:
+                    pass
+
         # 1. Extract A and B from pk or matrices/vectors
         pk = params.all_vars.get("pk")
         if isinstance(pk, (tuple, list)) and len(pk) == 2:
@@ -971,6 +1028,62 @@ class AutoSolver:
             except Exception:
                 pass
 
+        # ECC Curve Recovery from Point Doublings (P, Q=2P, R=2Q)
+        pt_P = params.all_vars.get("P") or params.all_vars.get("p_point") or params.all_vars.get("pt1")
+        pt_Q = params.all_vars.get("Q") or params.all_vars.get("q_point") or params.all_vars.get("pt2")
+        pt_R = params.all_vars.get("R") or params.all_vars.get("r_point") or params.all_vars.get("pt3")
+
+        def _is_pt(val: object) -> bool:
+            return isinstance(val, (tuple, list)) and len(val) == 2 and all(isinstance(x, int) for x in val)
+
+        if _is_pt(pt_P) and _is_pt(pt_Q) and _is_pt(pt_R):
+            try:
+                from ichnos.crypto.ecc.point_recovery import (
+                    int_to_bytes,
+                    recover_curve_from_doublings,
+                )
+
+                pt_C = params.all_vars.get("C") or params.all_vars.get("c_point")
+                C_arg = (int(pt_C[0]), int(pt_C[1])) if _is_pt(pt_C) else None
+
+                rec = recover_curve_from_doublings(
+                    P=(int(pt_P[0]), int(pt_P[1])),
+                    Q=(int(pt_Q[0]), int(pt_Q[1])),
+                    R=(int(pt_R[0]), int(pt_R[1])),
+                    C=C_arg,
+                )
+                if rec.p:
+                    candidates_to_check: list[bytes] = []
+                    if rec.flag:
+                        candidates_to_check.append(rec.flag)
+                    if rec.decrypted_point and rec.decrypted_point.x is not None:
+                        candidates_to_check.append(int_to_bytes(rec.decrypted_point.x))
+                    if rec.decrypted_point and rec.decrypted_point.y is not None:
+                        candidates_to_check.append(int_to_bytes(rec.decrypted_point.y))
+                    candidates_to_check.append(int_to_bytes(rec.p))
+                    candidates_to_check.append(int_to_bytes(rec.a))
+                    candidates_to_check.append(int_to_bytes(rec.b))
+
+                    for cand in candidates_to_check:
+                        cand_text = cand.decode("latin-1", errors="replace")
+                        f = extract_flag(cand_text)
+                        if f and not is_placeholder_flag(f):
+                            trace.solved = True
+                            trace.flag = f
+                            trace.attack_name = "ECC Point-Doubling Curve Recovery"
+                            trace.add_step(
+                                "ATTACK EXECUTION",
+                                "Recovered elliptic curve parameters from point doublings",
+                                [
+                                    f"Modulus p: {rec.p}",
+                                    f"Curve: y^2 = x^3 + {rec.a}x + {rec.b}",
+                                    f"Flag: {f}",
+                                ],
+                            )
+                            return True
+            except Exception:
+                pass
+
         # ---------------------------------------------------------------
         # PRNG / LCG Timestamp-Seeded Brute-Force Attack
         # Detects `lcg(s) = (a*s + b) % m` patterns with `time.time()` seeds.
@@ -1272,6 +1385,40 @@ class AutoSolver:
                 except Exception:
                     pass
 
+                try:
+                    from ichnos.forensic.zip import crack_zip, is_password_protected
+
+                    if is_password_protected(data):
+                        trace.add_step(
+                            "ATTACK DEDUCTION",
+                            f"Detected password-protected ZIP archive in {wf.relative_path}",
+                            ["Attempting dictionary crack using wordlist resolution hierarchy"],
+                        )
+                        import io
+                        import zipfile
+
+                        pwd = crack_zip(data)
+                        if pwd:
+                            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                                for member in zf.namelist():
+                                    try:
+                                        content = zf.read(member, pwd=pwd.encode())
+                                        f = extract_flag(content.decode("utf-8", errors="ignore"))
+                                        if f and not is_placeholder_flag(f):
+                                            trace.solved = True
+                                            trace.flag = f
+                                            trace.attack_name = f"ZIP Archive Cracking (Password: {pwd})"
+                                            trace.add_step(
+                                                "ATTACK EXECUTION",
+                                                f"Cracked password '{pwd}' and recovered flag from {member}",
+                                                [f"Flag: {f}", f"File: {member}"],
+                                            )
+                                            return True
+                                    except Exception:
+                                        pass
+                except Exception:
+                    pass
+
             # 2. Embedded File Carving (Native Binwalk)
             if len(data) > 128:
                 try:
@@ -1366,6 +1513,35 @@ class AutoSolver:
                                 [f"Value: {v}", f"Flag: {flag}"],
                             )
                             return True
+                except Exception:
+                    pass
+
+            # 6. OpenSSH Public Key Forensics & XOR Keystream Extraction
+            if (
+                wf.path.suffix.lower() == ".pub"
+                or any(k in wf.path.name.lower() for k in ("known_hosts", "authorized_keys", "id_ed25519", "id_rsa"))
+                or b"ssh-ed25519" in data
+                or b"ssh-rsa" in data
+            ):
+                try:
+                    from ichnos.forensic.ssh_key import inspect_and_reveal_ssh
+
+                    res = inspect_and_reveal_ssh(wf.text)
+                    if res and res.get("keys"):
+                        for kinfo in res["keys"]:
+                            for cand_str in (kinfo.get("utf8"), kinfo.get("revealed_text")):
+                                if cand_str:
+                                    f = extract_flag(cand_str)
+                                    if f and not is_placeholder_flag(f):
+                                        trace.solved = True
+                                        trace.flag = f
+                                        trace.attack_name = "OpenSSH Key Concealment Extraction"
+                                        trace.add_step(
+                                            "ATTACK EXECUTION",
+                                            f"Extracted concealed flag from SSH public key in {wf.relative_path}",
+                                            [f"Flag: {f}", f"Key Type: {kinfo.get('key_type')}"],
+                                        )
+                                        return True
                 except Exception:
                     pass
 

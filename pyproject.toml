@@ -9,7 +9,7 @@ description = "A modular, low-level command-line security/CTF toolkit"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-authors = [{ name = "Ichnos Contributors" }]
+authors = [{ name = "Mohith Krishna Mahesh" }]
 keywords = ["security", "ctf", "cryptography", "steganography", "forensics", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",

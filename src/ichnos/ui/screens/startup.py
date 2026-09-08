@@ -15,7 +15,7 @@ from textual.widgets import Static
 from ichnos.ui.mascot.widget import MascotWidget
 
 DISCLAIMER = (
-    "Ichnos is an offensive security & CTF analysis toolkit.\n"
+    "Ichnos is a security research & CTF analysis toolkit.\n"
     "Use only on systems, files, and challenges you own or have explicit authorization to test."
 )
 

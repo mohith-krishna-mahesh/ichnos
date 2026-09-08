@@ -161,6 +161,19 @@ def get_repo_wordlists_dir() -> Path | None:
     return None
 
 
+def _is_readable(p: Path | None) -> bool:
+    if not p:
+        return False
+    try:
+        if p.is_file():
+            with open(p, "rb") as f:
+                f.read(1)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def resolve_wordlist(
     custom_path: str | Path | None = None,
     preferred_name: str = "rockyou.txt",
@@ -177,25 +190,25 @@ def resolve_wordlist(
     # 1. Explicit path
     if custom_path:
         p = Path(custom_path).expanduser().resolve()
-        if p.is_file():
+        if _is_readable(p):
             return p
 
     # 2. Environment variable
     if "ICHNOS_WORDLIST" in os.environ:
         p = Path(os.environ["ICHNOS_WORDLIST"]).expanduser().resolve()
-        if p.is_file():
+        if _is_readable(p):
             return p
 
     # 3. User config directory
     try:
         user_dir = get_user_wordlists_dir()
         candidate = user_dir / preferred_name
-        if candidate.is_file():
+        if _is_readable(candidate):
             return candidate
 
         # Check for any .txt file in user dir if preferred_name not found
         for f in user_dir.glob("*.txt"):
-            if f.is_file():
+            if _is_readable(f):
                 return f
     except Exception:
         pass
@@ -205,13 +218,13 @@ def resolve_wordlist(
         try:
             if base.is_dir():
                 target = base / preferred_name
-                if target.is_file():
+                if _is_readable(target):
                     return target
-                if preferred_name == "rockyou.txt" and (base / "rockyou.txt.gz").is_file():
+                if preferred_name == "rockyou.txt" and _is_readable(base / "rockyou.txt.gz"):
                     return base / "rockyou.txt.gz"
                 # Subdirectory search (e.g. /usr/share/wordlists/seclists)
                 sub = base / "SecLists" / "Passwords" / preferred_name
-                if sub.is_file():
+                if _is_readable(sub):
                     return sub
         except Exception:
             continue

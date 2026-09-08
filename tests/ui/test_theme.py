@@ -4,7 +4,6 @@ import asyncio
 
 from ichnos.ui.app import IchnosApp
 from ichnos.ui.theme import (
-    HACKER_THEME,
     get_active_theme_name,
     get_available_themes,
     load_config,
@@ -16,8 +15,10 @@ from ichnos.ui.widgets.output import IchnosOutput
 
 def test_theme_defaults_and_builtins(monkeypatch, tmp_path):
     conf_file = tmp_path / "config.json"
+    themes_dir = tmp_path / "themes"
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_FILE", conf_file)
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
 
     # Defaults to hacker
     assert get_active_theme_name() == "hacker"
@@ -25,17 +26,23 @@ def test_theme_defaults_and_builtins(monkeypatch, tmp_path):
     for name in ["hacker", "cyber", "matrix", "monochrome", "dracula", "nord"]:
         assert name in themes
 
-    # Check Hacker theme palette references
-    assert HACKER_THEME.name == "hacker"
-    assert HACKER_THEME.background == "#0A0B0A"
-    assert HACKER_THEME.surface == "#111111"
-    assert HACKER_THEME.variables.get("border-color") == "#393836"
+    # Check Hacker theme loaded from seeded .theme file
+    from ichnos.ui.theme import discover_user_themes
+
+    user_themes = discover_user_themes()
+    hacker = user_themes["hacker"]
+    assert hacker.name == "hacker"
+    assert str(hacker.background).lower() == "#0a0b0a"
+    assert str(hacker.surface).lower() == "#111111"
+    assert hacker.variables.get("border-color") == "#393836"
 
 
 def test_theme_persistence_and_custom_themes(monkeypatch, tmp_path):
     conf_file = tmp_path / "config.json"
+    themes_dir = tmp_path / "themes"
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_FILE", conf_file)
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
 
     # Set theme to cyber
     set_active_theme_name("cyber")
@@ -70,8 +77,10 @@ def test_theme_persistence_and_custom_themes(monkeypatch, tmp_path):
 
 def test_app_theme_command_dispatch(monkeypatch, tmp_path):
     conf_file = tmp_path / "config.json"
+    themes_dir = tmp_path / "themes"
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_FILE", conf_file)
     monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
 
     async def _test():
         app = IchnosApp()
@@ -114,7 +123,7 @@ def test_canonical_theme_files_exist_and_valid():
     """Verify that all canonical .theme files in themes/ exist and parse as valid Theme objects."""
     from pathlib import Path
 
-    from ichnos.ui.theme import BUILTIN_THEMES, load_theme_file
+    from ichnos.ui.theme import _DEFAULT_THEME_SPECS, load_theme_file
 
     themes_repo_dir = Path(__file__).parent.parent.parent / "themes"
     assert themes_repo_dir.is_dir()
@@ -126,9 +135,10 @@ def test_canonical_theme_files_exist_and_valid():
         loaded = load_theme_file(theme_path)
         assert loaded is not None, f"Failed to parse {theme_path}"
         assert loaded.name == name
-        builtin = BUILTIN_THEMES[name]
-        assert str(loaded.primary).lower() == str(builtin.primary).lower()
-        assert str(loaded.background).lower() == str(builtin.background).lower()
+        # Verify the repo .theme files match the embedded defaults
+        spec = _DEFAULT_THEME_SPECS[name]
+        assert str(loaded.primary).lower() == spec["primary"].lower()
+        assert str(loaded.background).lower() == spec["background"].lower()
 
 
 def test_discover_user_themes_from_directory(tmp_path, monkeypatch):
@@ -154,14 +164,16 @@ def test_discover_user_themes_from_directory(tmp_path, monkeypatch):
     assert "synthwave" in avail
 
 
-def test_user_theme_overrides_builtin(tmp_path, monkeypatch):
-    """Verify that a user .theme file with a built-in name overrides the built-in theme."""
-    from ichnos.ui.theme import HACKER_THEME, discover_user_themes, register_ichnos_themes
+def test_user_theme_overrides_default(tmp_path, monkeypatch):
+    """Verify that a user .theme file with a default name overrides the seeded theme."""
+    from ichnos.ui.theme import discover_user_themes, register_ichnos_themes
 
     themes_dir = tmp_path / "themes"
     themes_dir.mkdir()
     monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
     monkeypatch.setenv("ICHNOS_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr("ichnos.ui.theme.DEFAULT_CONFIG_DIR", tmp_path)
 
     # Override hacker theme with customized primary color
     override_path = themes_dir / "hacker.theme"
@@ -172,7 +184,6 @@ def test_user_theme_overrides_builtin(tmp_path, monkeypatch):
     discovered = discover_user_themes()
     assert "hacker" in discovered
     assert str(discovered["hacker"].primary).lower() == "#00ffff"
-    assert str(HACKER_THEME.primary).lower() != "#00ffff"
 
     # In Textual app, registering themes should register the overridden hacker theme
     app = IchnosApp()
@@ -204,3 +215,37 @@ def test_malformed_theme_file_resilience(tmp_path, monkeypatch):
     assert "corrupt" not in discovered
     assert "missing" not in discovered
 
+
+def test_seed_user_themes_dir(tmp_path, monkeypatch):
+    """Verify that seed_user_themes_dir populates an empty directory with all default .theme files."""
+    from ichnos.ui.theme import seed_user_themes_dir
+
+    themes_dir = tmp_path / "seeded_themes"
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
+
+    seed_user_themes_dir()
+
+    for name in ("hacker", "cyber", "matrix", "monochrome", "dracula", "nord"):
+        theme_file = themes_dir / f"{name}.theme"
+        assert theme_file.exists(), f"Expected {theme_file} to be seeded"
+        assert "name" in theme_file.read_text(encoding="utf-8")
+
+
+def test_seed_does_not_overwrite_existing(tmp_path, monkeypatch):
+    """Verify that seed_user_themes_dir does not overwrite user-customised .theme files."""
+    from ichnos.ui.theme import seed_user_themes_dir
+
+    themes_dir = tmp_path / "themes"
+    themes_dir.mkdir()
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
+
+    # User has a custom hacker.theme
+    custom_content = '{"name": "hacker", "primary": "#ff0000", "background": "#000000"}'
+    (themes_dir / "hacker.theme").write_text(custom_content)
+
+    seed_user_themes_dir()
+
+    # hacker.theme should be preserved, not overwritten
+    assert (themes_dir / "hacker.theme").read_text() == custom_content
+    # Other themes should still be seeded
+    assert (themes_dir / "cyber.theme").exists()

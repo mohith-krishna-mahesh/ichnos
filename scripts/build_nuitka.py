@@ -60,6 +60,12 @@ def build_standalone(output_dir: Path, clean: bool = False) -> Path:
 
     run_command(cmd, env=env)
     dist_dir = output_dir / ("__main__.dist" if (output_dir / "__main__.dist").exists() else "ichnos.dist")
+    themes_src = REPO_ROOT / "themes"
+    if themes_src.exists():
+        themes_dest = dist_dir / "themes"
+        if themes_dest.exists():
+            shutil.rmtree(themes_dest)
+        shutil.copytree(themes_src, themes_dest)
     binary_name = "ichnos.exe" if sys.platform == "win32" else "ichnos"
     binary_path = dist_dir / binary_name
     print(f"[+] Standalone build completed at: {binary_path}")
@@ -96,6 +102,12 @@ def build_onefile(output_dir: Path, clean: bool = False) -> Path:
     ]
 
     run_command(cmd, env=env)
+    themes_src = REPO_ROOT / "themes"
+    if themes_src.exists():
+        themes_dest = output_dir / "themes"
+        if themes_dest.exists():
+            shutil.rmtree(themes_dest)
+        shutil.copytree(themes_src, themes_dest)
     binary_path = output_dir / binary_name
     print(f"[+] Onefile build completed at: {binary_path}")
     return binary_path

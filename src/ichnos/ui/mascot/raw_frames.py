@@ -654,10 +654,11 @@ def get_theme_colors(
     theme_name: str | None = None,
 ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
     """Resolves (background_rgb, logo_rgb) for a given or active theme."""
-    from ichnos.ui.theme import BUILTIN_THEMES, get_active_theme_name
+    from ichnos.ui.theme import discover_user_themes, get_active_theme_name
 
     target = theme_name or get_active_theme_name()
-    t = BUILTIN_THEMES.get(target)
+    all_themes = discover_user_themes()
+    t = all_themes.get(target)
     if t is not None:
         bg = hex_to_rgb(t.surface)
         if target == "hacker":

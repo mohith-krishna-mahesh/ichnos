@@ -1,0 +1,145 @@
+/* Ichnos Central TCSS Stylesheet */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* Startup Screen */
+StartupScreen {
+    align: center middle;
+    background: $background;
+}
+
+#startup-container {
+    width: 104;
+    max-width: 98%;
+    height: auto;
+    border: double $primary;
+    padding: 1 1;
+    background: $surface;
+    align: center middle;
+    content-align: center middle;
+}
+
+MascotWidget {
+    color: $primary;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    width: 100%;
+    height: auto;
+}
+
+#startup-logo {
+    color: $primary;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    width: 100%;
+    text-style: bold;
+}
+
+#startup-disclaimer {
+    color: $text-dim;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    text-style: italic;
+    margin: 1 0;
+    width: 100%;
+}
+
+#startup-prompt {
+    color: $primary;
+    text-style: bold;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    margin-top: 1;
+    width: 100%;
+}
+
+/* Main Screen Layout */
+MainScreen {
+    layout: vertical;
+    background: $background;
+}
+
+/* Header */
+IchnosHeader {
+    dock: top;
+    height: 3;
+    background: $header-bg;
+    border-bottom: solid $border-color;
+    color: $foreground;
+    padding: 0 1;
+}
+
+/* Output Area */
+IchnosOutput {
+    height: 1fr;
+    background: $output-bg;
+    border: round $border-color;
+    padding: 1 1;
+    overflow-y: scroll;
+}
+
+/* Prompt Container */
+#prompt-container {
+    dock: bottom;
+    height: auto;
+    background: $header-bg;
+    border-top: solid $border-color;
+    padding: 0 1;
+}
+
+IchnosPrompt {
+    width: 100%;
+    height: 3;
+    border: solid $border-color;
+    background: $prompt-bg;
+    color: $foreground;
+}
+
+IchnosPrompt:focus {
+    border: double $border-focused;
+}
+
+/* Autocomplete suggestion popup */
+#completions-view {
+    dock: bottom;
+    max-height: 8;
+    background: $header-bg;
+    border: solid $border-focused;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.completion-item {
+    padding: 0 1;
+}
+
+.completion-item-active {
+    background: $border-color;
+    color: $primary;
+    text-style: bold;
+}
+
+/* Status Bar */
+IchnosStatusBar {
+    dock: bottom;
+    height: 1;
+    background: $status-bg;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+/* Progress indicator */
+IchnosProgress {
+    height: 1;
+    color: $warning;
+    text-style: bold;
+    background: $status-bg;
+}
+

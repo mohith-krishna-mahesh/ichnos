@@ -151,10 +151,16 @@ def get_user_wordlists_dir() -> Path:
 def get_repo_wordlists_dir() -> Path | None:
     """Locates bundled repository wordlists directory if present."""
     candidates = [
+        Path.cwd() / "wordlists",
+        Path.cwd().resolve() / "wordlists",
         Path(__file__).resolve().parents[3] / "wordlists",
         Path(__file__).resolve().parents[2] / "wordlists",
+        Path(__file__).resolve().parents[1] / "wordlists",
         Path(sys.executable).resolve().parent / "wordlists",
     ]
+    if "GITHUB_WORKSPACE" in os.environ:
+        candidates.insert(0, Path(os.environ["GITHUB_WORKSPACE"]) / "wordlists")
+
     for c in candidates:
         if c.is_dir() and any(c.glob("*.txt")):
             return c

@@ -93,6 +93,7 @@ def parse_pe(data: bytes) -> dict[str, Any]:
     machine, num_sections, timestamp, _, _, opt_hdr_sz, chars = struct.unpack(
         "<HHIIIHH", data[coff_off : coff_off + 20]
     )
+    num_sections = min(max(0, num_sections), 256)
 
     opt_off = coff_off + 20
     is_64 = False
@@ -101,25 +102,31 @@ def parse_pe(data: bytes) -> dict[str, Any]:
     subsystem = 0
     data_dirs: list[dict[str, Any]] = []
 
-    if opt_hdr_sz > 0 and opt_off + opt_hdr_sz <= len(data):
-        magic = struct.unpack("<H", data[opt_off : opt_off + 2])[0]
-        is_64 = magic == 0x020B
-        entry_point = struct.unpack("<I", data[opt_off + 16 : opt_off + 20])[0]
+    if opt_hdr_sz > 0 and opt_off + min(opt_hdr_sz, len(data) - opt_off) >= opt_off + 2:
+        try:
+            magic = struct.unpack("<H", data[opt_off : opt_off + 2])[0]
+            is_64 = magic == 0x020B
+            if opt_off + 20 <= len(data):
+                entry_point = struct.unpack("<I", data[opt_off + 16 : opt_off + 20])[0]
 
-        if is_64:
-            image_base = struct.unpack("<Q", data[opt_off + 24 : opt_off + 32])[0]
-            subsystem = struct.unpack("<H", data[opt_off + 68 : opt_off + 70])[0]
-            dirs_off = opt_off + 112
-        else:
-            image_base = struct.unpack("<I", data[opt_off + 28 : opt_off + 32])[0]
-            subsystem = struct.unpack("<H", data[opt_off + 68 : opt_off + 70])[0]
-            dirs_off = opt_off + 96
+            if is_64 and opt_off + 70 <= len(data):
+                image_base = struct.unpack("<Q", data[opt_off + 24 : opt_off + 32])[0]
+                subsystem = struct.unpack("<H", data[opt_off + 68 : opt_off + 70])[0]
+                dirs_off = opt_off + 112
+            elif not is_64 and opt_off + 70 <= len(data):
+                image_base = struct.unpack("<I", data[opt_off + 28 : opt_off + 32])[0]
+                subsystem = struct.unpack("<H", data[opt_off + 68 : opt_off + 70])[0]
+                dirs_off = opt_off + 96
+            else:
+                dirs_off = opt_off + 112 if is_64 else opt_off + 96
 
-        for i in range(16):
-            if dirs_off + (i + 1) * 8 <= opt_off + opt_hdr_sz:
-                rva, sz = struct.unpack("<II", data[dirs_off + i * 8 : dirs_off + (i + 1) * 8])
-                name = DATA_DIRECTORY_NAMES[i] if i < len(DATA_DIRECTORY_NAMES) else f"Dir_{i}"
-                data_dirs.append({"name": name, "rva": rva, "size": sz})
+            for i in range(16):
+                if dirs_off + (i + 1) * 8 <= min(opt_off + opt_hdr_sz, len(data)):
+                    rva, sz = struct.unpack("<II", data[dirs_off + i * 8 : dirs_off + (i + 1) * 8])
+                    name = DATA_DIRECTORY_NAMES[i] if i < len(DATA_DIRECTORY_NAMES) else f"Dir_{i}"
+                    data_dirs.append({"name": name, "rva": rva, "size": sz})
+        except struct.error:
+            pass
 
     # Parse Sections
     sec_off = opt_off + opt_hdr_sz
@@ -128,18 +135,21 @@ def parse_pe(data: bytes) -> dict[str, Any]:
         if sec_off + (i + 1) * 40 > len(data):
             break
         s_data = data[sec_off + i * 40 : sec_off + (i + 1) * 40]
-        name = s_data[:8].rstrip(b"\x00").decode("latin-1", errors="replace")
-        vsz, va, rsz, rptr, _, _, _, _, s_chars = struct.unpack("<IIIIIIHHI", s_data[8:40])
-        sections.append(
-            PESection(
-                name=name,
-                virtual_size=vsz,
-                virtual_address=va,
-                size_of_raw_data=rsz,
-                pointer_to_raw_data=rptr,
-                characteristics=s_chars,
+        try:
+            name = s_data[:8].rstrip(b"\x00").decode("latin-1", errors="replace")
+            vsz, va, rsz, rptr, _, _, _, _, s_chars = struct.unpack("<IIIIIIHHI", s_data[8:40])
+            sections.append(
+                PESection(
+                    name=name,
+                    virtual_size=vsz,
+                    virtual_address=va,
+                    size_of_raw_data=rsz,
+                    pointer_to_raw_data=rptr,
+                    characteristics=s_chars,
+                )
             )
-        )
+        except struct.error:
+            break
 
     # Detect Overlay
     max_raw_end = max((s.pointer_to_raw_data + s.size_of_raw_data for s in sections), default=0)
@@ -188,10 +198,15 @@ def _parse_imports(
         return imports
 
     curr = idt_offset
-    while curr + 20 <= len(data):
-        orig_first_thunk, _, _, name_rva, first_thunk = struct.unpack(
-            "<IIIII", data[curr : curr + 20]
-        )
+    descriptor_count = 0
+    while curr + 20 <= len(data) and descriptor_count < 2048:
+        descriptor_count += 1
+        try:
+            orig_first_thunk, _, _, name_rva, first_thunk = struct.unpack(
+                "<IIIII", data[curr : curr + 20]
+            )
+        except struct.error:
+            break
         if orig_first_thunk == 0 and name_rva == 0 and first_thunk == 0:
             break
         curr += 20
@@ -203,7 +218,7 @@ def _parse_imports(
 
         dll_name_bytes = bytearray()
         pos = dll_offset
-        while pos < len(data) and data[pos] != 0:
+        while pos < len(data) and data[pos] != 0 and len(dll_name_bytes) < 256:
             dll_name_bytes.append(data[pos])
             pos += 1
         dll_name = dll_name_bytes.decode("latin-1", errors="replace")
@@ -216,12 +231,15 @@ def _parse_imports(
         if thunk_offset is not None:
             entry_size = 8 if is_64 else 4
             t_pos = thunk_offset
-            while t_pos + entry_size <= len(data):
-                entry_val = (
-                    struct.unpack("<Q", data[t_pos : t_pos + 8])[0]
-                    if is_64
-                    else struct.unpack("<I", data[t_pos : t_pos + 4])[0]
-                )
+            while t_pos + entry_size <= len(data) and len(functions) < 4096:
+                try:
+                    entry_val = (
+                        struct.unpack("<Q", data[t_pos : t_pos + 8])[0]
+                        if is_64
+                        else struct.unpack("<I", data[t_pos : t_pos + 4])[0]
+                    )
+                except struct.error:
+                    break
                 if entry_val == 0:
                     break
                 t_pos += entry_size
@@ -233,11 +251,12 @@ def _parse_imports(
                     functions.append(f"Ordinal_{ordinal}")
                 else:
                     # Pointer to IMAGE_IMPORT_BY_NAME: 2-byte Hint + ASCII Name
-                    name_ptr = rva_to_offset(entry_val & 0x7FFFFFFF, sections)
+                    mask = 0x7FFFFFFFFFFFFFFF if is_64 else 0x7FFFFFFF
+                    name_ptr = rva_to_offset(entry_val & mask, sections)
                     if name_ptr and name_ptr + 2 < len(data):
                         fn_bytes = bytearray()
                         fn_pos = name_ptr + 2
-                        while fn_pos < len(data) and data[fn_pos] != 0:
+                        while fn_pos < len(data) and data[fn_pos] != 0 and len(fn_bytes) < 256:
                             fn_bytes.append(data[fn_pos])
                             fn_pos += 1
                         functions.append(fn_bytes.decode("latin-1", errors="replace"))
@@ -251,7 +270,10 @@ def detect_overlay(data: bytes) -> bytes | None:
     """Extracts trailing overlay data appended after the last PE section."""
     if not is_pe(data):
         return None
-    info = parse_pe(data)
+    try:
+        info = parse_pe(data)
+    except Exception:
+        return None
     if not info["has_overlay"]:
         return None
     e_lfanew = struct.unpack("<I", data[0x3C:0x40])[0]
@@ -260,6 +282,7 @@ def detect_overlay(data: bytes) -> bytes | None:
         struct.unpack("<HH", data[coff_off + 2 : coff_off + 6])[0],
         struct.unpack("<H", data[coff_off + 16 : coff_off + 18])[0],
     )
+    num_sections = min(max(0, num_sections), 256)
     sec_off = coff_off + 20 + opt_hdr_sz
 
     max_end = 0
@@ -267,7 +290,10 @@ def detect_overlay(data: bytes) -> bytes | None:
         if sec_off + (i + 1) * 40 > len(data):
             break
         s_data = data[sec_off + i * 40 : sec_off + (i + 1) * 40]
-        rsz, rptr = struct.unpack("<II", s_data[16:24])
-        max_end = max(max_end, rptr + rsz)
+        try:
+            rsz, rptr = struct.unpack("<II", s_data[16:24])
+            max_end = max(max_end, rptr + rsz)
+        except struct.error:
+            break
 
     return data[max_end:] if len(data) > max_end else None

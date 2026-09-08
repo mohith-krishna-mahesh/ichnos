@@ -6,9 +6,9 @@ anomalous compression levels, multiple discrete concatenated streams, or embedde
 
 from __future__ import annotations
 
-import zlib
 from typing import Any
 
+from ichnos.core.security import safe_decompress_zlib
 from ichnos.stego.image.png import parse_chunks
 
 
@@ -68,9 +68,9 @@ def analyze_idat_deflate(png_data: bytes) -> dict[str, Any]:
 
     # Attempt decompression of any secondary zlib streams
     secondary_decompressed: list[bytes] = []
-    for offset in header_indices[1:]:
+    for offset in header_indices[1:11]:
         try:
-            decomp = zlib.decompress(concatenated_data[offset:])
+            decomp = safe_decompress_zlib(concatenated_data[offset:], max_size=32 * 1024 * 1024)
             if decomp:
                 secondary_decompressed.append(decomp)
         except Exception:

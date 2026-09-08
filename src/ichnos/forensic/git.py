@@ -6,9 +6,10 @@ detects deleted files across historical commits, and extracts deleted secrets/fl
 
 from __future__ import annotations
 
-import zlib
 from pathlib import Path
 from typing import Any
+
+from ichnos.core.security import DEFAULT_MAX_DECOMPRESSED_SIZE, safe_decompress_zlib
 
 
 def parse_git_object(raw_data: bytes) -> tuple[str, bytes]:
@@ -17,7 +18,7 @@ def parse_git_object(raw_data: bytes) -> tuple[str, bytes]:
     Returns:
         (object_type, payload_bytes) where object_type is 'commit', 'tree', 'blob', or 'tag'.
     """
-    decompressed = zlib.decompress(raw_data)
+    decompressed = safe_decompress_zlib(raw_data, max_size=DEFAULT_MAX_DECOMPRESSED_SIZE)
     null_idx = decompressed.find(b"\x00")
     if null_idx == -1:
         return "unknown", decompressed

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ichnos.core.detection import detect_file_type
 from ichnos.core.models import Input, SourceType
+from ichnos.core.security import DEFAULT_MAX_FILE_READ_SIZE
 
 
 def _extract_payload_if_json_result(data: bytes) -> bytes:
@@ -62,7 +63,12 @@ def read_input(source: str | None = None) -> Input:
             path = Path(source)
 
         if path.is_file():
-            data = path.read_bytes()
+            with open(path, "rb") as f:
+                data = f.read(DEFAULT_MAX_FILE_READ_SIZE + 1)
+                if len(data) > DEFAULT_MAX_FILE_READ_SIZE:
+                    raise ValueError(
+                        f"File exceeds maximum allowed read size of {DEFAULT_MAX_FILE_READ_SIZE // (1024 * 1024)}MB"
+                    )
             return Input(
                 data=data,
                 source_type=SourceType.FILE,
@@ -86,7 +92,11 @@ def read_input(source: str | None = None) -> Input:
 
     # stdin mode
     if source == "-" or (source is None and not sys.stdin.isatty()):
-        data = sys.stdin.buffer.read()
+        data = sys.stdin.buffer.read(DEFAULT_MAX_FILE_READ_SIZE + 1)
+        if len(data) > DEFAULT_MAX_FILE_READ_SIZE:
+            raise ValueError(
+                f"Stdin stream exceeds maximum allowed read size of {DEFAULT_MAX_FILE_READ_SIZE // (1024 * 1024)}MB"
+            )
         data = _extract_payload_if_json_result(data)
         return Input(
             data=data,

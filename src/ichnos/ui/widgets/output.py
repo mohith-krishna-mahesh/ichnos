@@ -13,6 +13,8 @@ from rich.text import Text
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from ichnos.core.security import sanitize_terminal_output
+
 if TYPE_CHECKING:
     from ichnos.core.models import Result
 
@@ -68,19 +70,19 @@ class IchnosOutput(VerticalScroll):
 
     def write_info(self, message: str) -> None:
         sty = self._get_theme_styles()
-        self.write_line(f"[{sty['primary']}]ℹ[/{sty['primary']}] {escape(message)}")
+        self.write_line(f"[{sty['primary']}]ℹ[/{sty['primary']}] {escape(sanitize_terminal_output(message))}")
 
     def write_success(self, message: str) -> None:
         sty = self._get_theme_styles()
-        self.write_line(f"[{sty['success']}]✓[/{sty['success']}] {escape(message)}")
+        self.write_line(f"[{sty['success']}]✓[/{sty['success']}] {escape(sanitize_terminal_output(message))}")
 
     def write_warning(self, message: str) -> None:
         sty = self._get_theme_styles()
-        self.write_line(f"[{sty['warning']}]⚠[/{sty['warning']}] {escape(message)}")
+        self.write_line(f"[{sty['warning']}]⚠[/{sty['warning']}] {escape(sanitize_terminal_output(message))}")
 
     def write_error(self, message: str) -> None:
         sty = self._get_theme_styles()
-        self.write_line(f"[{sty['error']}]✗[/{sty['error']}] {escape(message)}")
+        self.write_line(f"[{sty['error']}]✗[/{sty['error']}] {escape(sanitize_terminal_output(message))}")
 
     def clear_output(self) -> None:
         """Removes all children from the output view."""
@@ -100,7 +102,7 @@ class IchnosOutput(VerticalScroll):
         # In Expert Mode: Output clean 1-line answer + 1-line how
         if mode == "expert" and res.candidates:
             top_c = res.candidates[0]
-            ans_clean = top_c.decoded_str.strip().replace("\n", " ").replace("\r", "")
+            ans_clean = sanitize_terminal_output(top_c.decoded_str).strip().replace("\n", " ").replace("\r", "")
             if len(ans_clean) > 85:
                 ans_clean = ans_clean[:82] + "..."
             key_info = f" | key={top_c.key}" if top_c.key is not None else ""

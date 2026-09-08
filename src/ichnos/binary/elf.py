@@ -43,7 +43,7 @@ PT_MAP = {
 
 def parse_header(data: bytes) -> dict:
     if not data.startswith(b"\x7fELF") or len(data) < 52:
-        raise ValueError("Not a valid ELF file")
+        raise ValueError("Not a valid ELF file: header too short")
 
     ei_class = data[4]
     ei_data = data[5]
@@ -58,7 +58,14 @@ def parse_header(data: bytes) -> dict:
     else:
         raise ValueError("Unknown ELF class")
 
-    unpacked = struct.unpack(hdr_fmt, data[16 : 16 + hdr_size])
+    if len(data) < 16 + hdr_size:
+        raise ValueError("ELF file truncated before header complete")
+
+    try:
+        unpacked = struct.unpack(hdr_fmt, data[16 : 16 + hdr_size])
+    except struct.error as e:
+        raise ValueError(f"Malformed ELF header: {e}") from e
+
     return {
         "class": CLASS_MAP.get(ei_class, ei_class),
         "endianness": DATA_MAP.get(ei_data, "little"),
@@ -84,42 +91,55 @@ def parse_program_headers(data: bytes) -> list[dict]:
     fmt = "<" if hdr["endianness"] in ("little", EI_DATA_LE) else ">"
     phoff, phentsize, phnum = hdr["phoff"], hdr["phentsize"], hdr["phnum"]
 
+    if phoff < 0 or phentsize <= 0:
+        return []
+
+    phnum = min(max(0, phnum), 1024)
     headers = []
     for i in range(phnum):
         offset = phoff + i * phentsize
+        if offset + phentsize > len(data):
+            break
         chunk = data[offset : offset + phentsize]
-        if hdr["class"] in (32, EI_CLASS_32):
-            up = struct.unpack(fmt + "IIIIIIII", chunk[:32])
-            flags_val = up[6]
-            flag_str = f"{'R ' if flags_val & 4 else ''}{'W ' if flags_val & 2 else ''}{'X' if flags_val & 1 else ''}".strip()
-            headers.append(
-                {
-                    "type": PT_MAP.get(up[0], str(up[0])),
-                    "offset": up[1],
-                    "vaddr": up[2],
-                    "paddr": up[3],
-                    "filesz": up[4],
-                    "memsz": up[5],
-                    "flags": flag_str,
-                    "align": up[7],
-                }
-            )
-        else:
-            up = struct.unpack(fmt + "IIQQQQQQ", chunk[:56])
-            flags_val = up[1]
-            flag_str = f"{'R ' if flags_val & 4 else ''}{'W ' if flags_val & 2 else ''}{'X' if flags_val & 1 else ''}".strip()
-            headers.append(
-                {
-                    "type": PT_MAP.get(up[0], str(up[0])),
-                    "flags": flag_str,
-                    "offset": up[2],
-                    "vaddr": up[3],
-                    "paddr": up[4],
-                    "filesz": up[5],
-                    "memsz": up[6],
-                    "align": up[7],
-                }
-            )
+        try:
+            if hdr["class"] in (32, EI_CLASS_32):
+                if len(chunk) < 32:
+                    break
+                up = struct.unpack(fmt + "IIIIIIII", chunk[:32])
+                flags_val = up[6]
+                flag_str = f"{'R ' if flags_val & 4 else ''}{'W ' if flags_val & 2 else ''}{'X' if flags_val & 1 else ''}".strip()
+                headers.append(
+                    {
+                        "type": PT_MAP.get(up[0], str(up[0])),
+                        "offset": up[1],
+                        "vaddr": up[2],
+                        "paddr": up[3],
+                        "filesz": up[4],
+                        "memsz": up[5],
+                        "flags": flag_str,
+                        "align": up[7],
+                    }
+                )
+            else:
+                if len(chunk) < 56:
+                    break
+                up = struct.unpack(fmt + "IIQQQQQQ", chunk[:56])
+                flags_val = up[1]
+                flag_str = f"{'R ' if flags_val & 4 else ''}{'W ' if flags_val & 2 else ''}{'X' if flags_val & 1 else ''}".strip()
+                headers.append(
+                    {
+                        "type": PT_MAP.get(up[0], str(up[0])),
+                        "flags": flag_str,
+                        "offset": up[2],
+                        "vaddr": up[3],
+                        "paddr": up[4],
+                        "filesz": up[5],
+                        "memsz": up[6],
+                        "align": up[7],
+                    }
+                )
+        except struct.error:
+            break
     return headers
 
 
@@ -128,55 +148,78 @@ def parse_section_headers(data: bytes) -> list[dict]:
     fmt = "<" if hdr["endianness"] in ("little", EI_DATA_LE) else ">"
     shoff, shentsize, shnum = hdr["shoff"], hdr["shentsize"], hdr["shnum"]
 
+    if shoff < 0 or shentsize <= 0:
+        return []
+
+    shnum = min(max(0, shnum), 4096)
     sections = []
     for i in range(shnum):
         offset = shoff + i * shentsize
+        if offset + shentsize > len(data):
+            break
         chunk = data[offset : offset + shentsize]
-        if hdr["class"] in (32, EI_CLASS_32):
-            up = struct.unpack(fmt + "IIIIIIIIII", chunk[:40])
-            sections.append(
-                {
-                    "name_idx": up[0],
-                    "type": up[1],
-                    "flags": up[2],
-                    "addr": up[3],
-                    "offset": up[4],
-                    "size": up[5],
-                    "link": up[6],
-                    "info": up[7],
-                    "addralign": up[8],
-                    "entsize": up[9],
-                }
-            )
-        else:
-            up = struct.unpack(fmt + "IIQQQQIIQQ", chunk[:64])
-            sections.append(
-                {
-                    "name_idx": up[0],
-                    "type": up[1],
-                    "flags": up[2],
-                    "addr": up[3],
-                    "offset": up[4],
-                    "size": up[5],
-                    "link": up[6],
-                    "info": up[7],
-                    "addralign": up[8],
-                    "entsize": up[9],
-                }
-            )
-
-    if hdr["shstrndx"] < len(sections):
-        strtab_sec = sections[hdr["shstrndx"]]
-        strtab = data[strtab_sec["offset"] : strtab_sec["offset"] + strtab_sec["size"]]
-        for sec in sections:
-            name_idx = sec["name_idx"]
-            if name_idx < len(strtab):
-                end = strtab.find(b"\x00", name_idx)
-                sec["name"] = (
-                    strtab[name_idx:end].decode("utf-8", errors="replace") if end != -1 else ""
+        try:
+            if hdr["class"] in (32, EI_CLASS_32):
+                if len(chunk) < 40:
+                    break
+                up = struct.unpack(fmt + "IIIIIIIIII", chunk[:40])
+                sections.append(
+                    {
+                        "name_idx": up[0],
+                        "type": up[1],
+                        "flags": up[2],
+                        "addr": up[3],
+                        "offset": up[4],
+                        "size": up[5],
+                        "link": up[6],
+                        "info": up[7],
+                        "addralign": up[8],
+                        "entsize": up[9],
+                    }
                 )
             else:
+                if len(chunk) < 64:
+                    break
+                up = struct.unpack(fmt + "IIQQQQIIQQ", chunk[:64])
+                sections.append(
+                    {
+                        "name_idx": up[0],
+                        "type": up[1],
+                        "flags": up[2],
+                        "addr": up[3],
+                        "offset": up[4],
+                        "size": up[5],
+                        "link": up[6],
+                        "info": up[7],
+                        "addralign": up[8],
+                        "entsize": up[9],
+                    }
+                )
+        except struct.error:
+            break
+
+    if 0 <= hdr["shstrndx"] < len(sections):
+        strtab_sec = sections[hdr["shstrndx"]]
+        sec_off = strtab_sec["offset"]
+        sec_sz = strtab_sec["size"]
+        if sec_off >= 0 and sec_off + sec_sz <= len(data):
+            strtab = data[sec_off : sec_off + sec_sz]
+            for sec in sections:
+                name_idx = sec["name_idx"]
+                if 0 <= name_idx < len(strtab):
+                    end = strtab.find(b"\x00", name_idx)
+                    sec["name"] = (
+                        strtab[name_idx:end].decode("utf-8", errors="replace") if end != -1 else ""
+                    )
+                else:
+                    sec["name"] = ""
+        else:
+            for sec in sections:
                 sec["name"] = ""
+    else:
+        for sec in sections:
+            sec["name"] = ""
+
     return sections
 
 
@@ -188,43 +231,62 @@ def parse_symbols(data: bytes) -> list[dict]:
     symbols = []
     for sec in sections:
         if sec["type"] in (SHT_SYMTAB, SHT_DYNSYM):
-            strtab_sec = sections[sec["link"]]
-            strtab = data[strtab_sec["offset"] : strtab_sec["offset"] + strtab_sec["size"]]
-            ent_size = sec["entsize"] or (16 if hdr["class"] in (32, EI_CLASS_32) else 24)
-            num_syms = sec["size"] // ent_size
+            link_idx = sec["link"]
+            if not (0 <= link_idx < len(sections)):
+                continue
+            strtab_sec = sections[link_idx]
+            strtab_off = strtab_sec["offset"]
+            strtab_sz = strtab_sec["size"]
+            if strtab_off < 0 or strtab_off + strtab_sz > len(data):
+                continue
+            strtab = data[strtab_off : strtab_off + strtab_sz]
+            default_ent = 16 if hdr["class"] in (32, EI_CLASS_32) else 24
+            ent_size = sec["entsize"] if sec["entsize"] > 0 else default_ent
+            if ent_size <= 0:
+                continue
+            num_syms = min(max(0, sec["size"] // ent_size), 65536)
             for i in range(num_syms):
                 offset = sec["offset"] + i * ent_size
+                if offset + ent_size > len(data):
+                    break
                 chunk = data[offset : offset + ent_size]
-                if hdr["class"] in (32, EI_CLASS_32):
-                    up = struct.unpack(fmt + "IIIBBH", chunk[:16])
-                    name_idx = up[0]
-                    sym = {
-                        "name": "",
-                        "value": up[1],
-                        "size": up[2],
-                        "info": up[3],
-                        "other": up[4],
-                        "shndx": up[5],
-                    }
-                else:
-                    up = struct.unpack(fmt + "IBBHQQ", chunk[:24])
-                    name_idx = up[0]
-                    sym = {
-                        "name": "",
-                        "info": up[1],
-                        "other": up[2],
-                        "shndx": up[3],
-                        "value": up[4],
-                        "size": up[5],
-                    }
-                sym["bind"] = sym["info"] >> 4
-                sym["type"] = sym["info"] & 0xF
-                sym["visibility"] = sym["other"] & 0x3
-                if name_idx < len(strtab):
-                    end = strtab.find(b"\x00", name_idx)
-                    if end != -1:
-                        sym["name"] = strtab[name_idx:end].decode("utf-8", errors="replace")
-                symbols.append(sym)
+                try:
+                    if hdr["class"] in (32, EI_CLASS_32):
+                        if len(chunk) < 16:
+                            break
+                        up = struct.unpack(fmt + "IIIBBH", chunk[:16])
+                        name_idx = up[0]
+                        sym = {
+                            "name": "",
+                            "value": up[1],
+                            "size": up[2],
+                            "info": up[3],
+                            "other": up[4],
+                            "shndx": up[5],
+                        }
+                    else:
+                        if len(chunk) < 24:
+                            break
+                        up = struct.unpack(fmt + "IBBHQQ", chunk[:24])
+                        name_idx = up[0]
+                        sym = {
+                            "name": "",
+                            "info": up[1],
+                            "other": up[2],
+                            "shndx": up[3],
+                            "value": up[4],
+                            "size": up[5],
+                        }
+                    sym["bind"] = sym["info"] >> 4
+                    sym["type"] = sym["info"] & 0xF
+                    sym["visibility"] = sym["other"] & 0x3
+                    if 0 <= name_idx < len(strtab):
+                        end = strtab.find(b"\x00", name_idx)
+                        if end != -1:
+                            sym["name"] = strtab[name_idx:end].decode("utf-8", errors="replace")
+                    symbols.append(sym)
+                except struct.error:
+                    break
     return symbols
 
 

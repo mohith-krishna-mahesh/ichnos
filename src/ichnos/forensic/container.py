@@ -11,6 +11,8 @@ import json
 import tarfile
 from typing import Any
 
+from ichnos.core.security import DEFAULT_MAX_DECOMPRESSED_SIZE, sanitize_archive_path
+
 
 def inspect_container_image(image_tar_data: bytes) -> dict[str, Any]:
     """Inspects an exported Docker/OCI image archive (tar format).
@@ -31,7 +33,7 @@ def inspect_container_image(image_tar_data: bytes) -> dict[str, Any]:
                 if member.name == "manifest.json":
                     f = tar.extractfile(member)
                     if f:
-                        manifest = json.loads(f.read().decode("utf-8"))
+                        manifest = json.loads(f.read(10 * 1024 * 1024).decode("utf-8"))
                         if manifest and isinstance(manifest, list):
                             layer_tar_names = manifest[0].get("Layers", [])
                         break
@@ -45,15 +47,21 @@ def inspect_container_image(image_tar_data: bytes) -> dict[str, Any]:
             file_history: dict[str, dict[str, Any]] = {}
             whiteouts: list[dict[str, Any]] = []
 
-            for layer_idx, layer_name in enumerate(layer_tar_names):
+            for layer_idx, layer_name in enumerate(layer_tar_names[:64]):
                 try:
                     layer_member = tar.getmember(layer_name)
                     layer_file = tar.extractfile(layer_member)
                     if not layer_file:
                         continue
-                    with tarfile.open(fileobj=io.BytesIO(layer_file.read()), mode="r:*") as ltar:
+                    layer_bytes = layer_file.read(DEFAULT_MAX_DECOMPRESSED_SIZE + 1)
+                    if len(layer_bytes) > DEFAULT_MAX_DECOMPRESSED_SIZE:
+                        continue
+                    with tarfile.open(fileobj=io.BytesIO(layer_bytes), mode="r:*") as ltar:
                         for lmem in ltar.getmembers():
-                            name = lmem.name
+                            try:
+                                name = sanitize_archive_path(lmem.name)
+                            except ValueError:
+                                continue
                             base_name = name.split("/")[-1]
 
                             # Check for OCI whiteout marker (.wh.<filename>)
@@ -74,7 +82,7 @@ def inspect_container_image(image_tar_data: bytes) -> dict[str, Any]:
                             elif lmem.isreg():
                                 try:
                                     f_data = ltar.extractfile(lmem)
-                                    content = f_data.read() if f_data else b""
+                                    content = f_data.read(16 * 1024 * 1024) if f_data else b""
                                     file_history[name] = {
                                         "layer_index": layer_idx,
                                         "size": len(content),

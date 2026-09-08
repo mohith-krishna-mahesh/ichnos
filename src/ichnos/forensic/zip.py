@@ -6,6 +6,8 @@ import os
 import tempfile
 import zipfile
 
+from ichnos.core.security import sanitize_archive_path
+
 
 def inspect_zip(data: bytes) -> dict:
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -15,11 +17,19 @@ def inspect_zip(data: bytes) -> dict:
     entries = []
     total_compressed = 0
     total_uncompressed = 0
+    has_path_traversal = False
+    traversal_entries = []
 
     try:
         with zipfile.ZipFile(tmp_name, "r") as zf:
             for info in zf.infolist():
                 is_encrypted = bool(info.flag_bits & 0x1)
+                try:
+                    sanitize_archive_path(info.filename)
+                except ValueError:
+                    has_path_traversal = True
+                    traversal_entries.append(info.filename)
+
                 entries.append(
                     {
                         "filename": info.filename,
@@ -36,10 +46,22 @@ def inspect_zip(data: bytes) -> dict:
     finally:
         os.unlink(tmp_name)
 
+    is_bomb = False
+    bomb_warning = None
+    if total_uncompressed > 100 * 1024 * 1024:
+        ratio = total_uncompressed / max(1, total_compressed)
+        if ratio > 100.0 or total_uncompressed > 1024 * 1024 * 1024:
+            is_bomb = True
+            bomb_warning = f"Decompression bomb detected: total uncompressed {total_uncompressed / (1024*1024):.1f}MB, ratio {ratio:.1f}:1"
+
     return {
         "total_entries": len(entries),
         "total_compressed": total_compressed,
         "total_uncompressed": total_uncompressed,
+        "is_bomb": is_bomb,
+        "bomb_warning": bomb_warning,
+        "has_path_traversal": has_path_traversal,
+        "traversal_entries": traversal_entries,
         "entries": entries,
     }
 
@@ -113,9 +135,10 @@ def crack_zip(data: bytes, wordlist_path: str) -> str | None:
                         break
                     pwd = line.strip()
                     try:
-                        zf.read(test_file, pwd=pwd.encode("utf-8"))
-                        password = pwd
-                        break
+                        with zf.open(test_file, pwd=pwd.encode("utf-8")) as member_file:
+                            member_file.read(4096)
+                            password = pwd
+                            break
                     except (RuntimeError, zipfile.BadZipFile):
                         pass
     finally:

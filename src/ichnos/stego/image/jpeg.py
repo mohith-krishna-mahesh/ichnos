@@ -52,6 +52,9 @@ class JPEGMarker:
     data: bytes
 
 
+MAX_SEGMENTS = 10_000
+
+
 def parse_segments(data: bytes) -> list[JPEGMarker]:
     """Parses all JPEG markers and segments from raw bytes."""
     if len(data) < 4 or data[:2] != b"\xff\xd8":
@@ -63,7 +66,7 @@ def parse_segments(data: bytes) -> list[JPEGMarker]:
 
     segments.append(JPEGMarker(marker=MARKER_SOI, name="SOI", offset=0, length=2, data=b""))
 
-    while idx < size - 1:
+    while idx < size - 1 and len(segments) < MAX_SEGMENTS:
         if data[idx] != 0xFF:
             idx += 1
             continue
@@ -85,8 +88,13 @@ def parse_segments(data: bytes) -> list[JPEGMarker]:
             # SOS has length prefix for scan header, followed by entropy-coded data
             if idx + 4 > size:
                 break
-            header_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
-            sos_header = data[idx + 4 : idx + 2 + header_len]
+            try:
+                header_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
+            except struct.error:
+                break
+            if header_len < 2:
+                break
+            sos_header = data[idx + 4 : min(idx + 2 + header_len, size)]
             segments.append(
                 JPEGMarker(
                     marker=marker,
@@ -108,8 +116,15 @@ def parse_segments(data: bytes) -> list[JPEGMarker]:
         # Standard segment with 2-byte length
         if idx + 4 > size:
             break
-        seg_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
-        seg_data = data[idx + 4 : idx + 2 + seg_len]
+        try:
+            seg_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
+        except struct.error:
+            break
+        if seg_len < 2:
+            idx += 2
+            continue
+
+        seg_data = data[idx + 4 : min(idx + 2 + seg_len, size)]
         segments.append(
             JPEGMarker(
                 marker=marker,

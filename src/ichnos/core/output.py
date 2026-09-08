@@ -13,6 +13,7 @@ from rich.text import Text
 
 from ichnos.core.models import Candidate, Finding, Result
 from ichnos.core.pipeline import is_stdout_piped
+from ichnos.core.security import sanitize_terminal_output
 
 # Human-readable output goes to stderr so stdout stays clean for piping
 _console = Console(stderr=True)
@@ -102,10 +103,12 @@ def _render_human(result: Result) -> None:
         else:
             if not result.findings and not result.candidates:
                 _console.print()
-                if isinstance(result.raw_output, str):
-                    _console.print(result.raw_output)
-                else:
-                    _console.print(str(result.raw_output))
+                raw_str = (
+                    result.raw_output
+                    if isinstance(result.raw_output, str)
+                    else str(result.raw_output)
+                )
+                _console.print(sanitize_terminal_output(raw_str))
 
 
 def print_findings(findings: list[Finding]) -> None:
@@ -125,10 +128,10 @@ def print_findings(findings: list[Finding]) -> None:
         conf_text.stylize(color)
         table.add_row(
             conf_text,
-            f.module,
-            f.label,
-            f.detail,
-            f.command_hint or "",
+            sanitize_terminal_output(f.module),
+            sanitize_terminal_output(f.label),
+            sanitize_terminal_output(f.detail),
+            sanitize_terminal_output(f.command_hint or ""),
         )
 
     _console.print(table)
@@ -153,9 +156,9 @@ def print_candidates(candidates: list[Candidate], max_display: int = 20) -> None
             decoded_preview += "…"
         table.add_row(
             conf_text,
-            c.method,
-            str(c.key) if c.key is not None else "",
-            decoded_preview,
+            sanitize_terminal_output(c.method),
+            sanitize_terminal_output(str(c.key) if c.key is not None else ""),
+            sanitize_terminal_output(decoded_preview),
         )
 
     _console.print(table)
@@ -163,7 +166,7 @@ def print_candidates(candidates: list[Candidate], max_display: int = 20) -> None
     if c_layers := [c for c in sorted_cands if c.layers]:
         _console.print("\n[dim]Decode chains:[/dim]")
         for c in c_layers:
-            _console.print(f"  {' → '.join(c.layers)}")
+            _console.print(f"  {sanitize_terminal_output(' → '.join(c.layers))}")
 
 
 def print_raw(data: str | bytes) -> None:
@@ -176,14 +179,14 @@ def print_raw(data: str | bytes) -> None:
 
 def print_error(message: str) -> None:
     """Print an error message to stderr."""
-    _console.print(f"[bold red]Error:[/bold red] {message}")
+    _console.print(f"[bold red]Error:[/bold red] {sanitize_terminal_output(message)}")
 
 
 def print_success(message: str) -> None:
     """Print a success message to stderr."""
-    _console.print(f"[bold green]✓[/bold green] {message}")
+    _console.print(f"[bold green]✓[/bold green] {sanitize_terminal_output(message)}")
 
 
 def print_info(message: str) -> None:
     """Print an info message to stderr."""
-    _console.print(f"[blue]ℹ[/blue] {message}")
+    _console.print(f"[blue]ℹ[/blue] {sanitize_terminal_output(message)}")

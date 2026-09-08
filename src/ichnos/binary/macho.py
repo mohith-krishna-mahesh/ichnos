@@ -77,25 +77,31 @@ def parse_macho(data: bytes) -> dict[str, Any]:
     # Handle FAT / Universal binary
     if raw_magic in (FAT_MAGIC, FAT_CIGAM):
         endian = ">" if raw_magic == FAT_MAGIC else "<"
+        if len(data) < 8:
+            raise ValueError("Truncated FAT header")
         nfat_arch = struct.unpack(f"{endian}I", data[4:8])[0]
+        nfat_arch = min(max(0, nfat_arch), 64)
         arches = []
         for i in range(nfat_arch):
             off = 8 + i * 20
             if off + 20 <= len(data):
-                cputype, cpusub, fileoff, sz, _ = struct.unpack(
-                    f"{endian}IIIII", data[off : off + 20]
-                )
-                arches.append(
-                    {
-                        "cpu": CPU_TYPES.get(cputype, f"0x{cputype:08X}"),
-                        "offset": fileoff,
-                        "size": sz,
-                    }
-                )
+                try:
+                    cputype, cpusub, fileoff, sz, _ = struct.unpack(
+                        f"{endian}IIIII", data[off : off + 20]
+                    )
+                    arches.append(
+                        {
+                            "cpu": CPU_TYPES.get(cputype, f"0x{cputype:08X}"),
+                            "offset": fileoff,
+                            "size": sz,
+                        }
+                    )
+                except struct.error:
+                    break
         return {
             "format": "Mach-O Universal / FAT Binary",
             "is_fat": True,
-            "architectures_count": nfat_arch,
+            "architectures_count": len(arches),
             "architectures": arches,
         }
 
@@ -115,6 +121,7 @@ def parse_macho(data: bytes) -> dict[str, Any]:
     cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags = struct.unpack(
         f"{endian}IIIIII", data[4:28]
     )
+    ncmds = min(max(0, ncmds), 1024)
 
     segments: list[dict[str, Any]] = []
     dylibs: list[str] = []
@@ -125,7 +132,12 @@ def parse_macho(data: bytes) -> dict[str, Any]:
     for _ in range(ncmds):
         if curr + 8 > len(data):
             break
-        cmd, cmdsize = struct.unpack(f"{endian}II", data[curr : curr + 8])
+        try:
+            cmd, cmdsize = struct.unpack(f"{endian}II", data[curr : curr + 8])
+        except struct.error:
+            break
+        if cmdsize < 8 or curr + cmdsize > len(data):
+            break
         cmd_data = data[curr : curr + cmdsize]
 
         if cmd in (LC_SEGMENT, LC_SEGMENT_64):
@@ -136,6 +148,7 @@ def parse_macho(data: bytes) -> dict[str, Any]:
                 )
                 sections = []
                 sec_ptr = 72
+                nsects = min(max(0, nsects), 256)
                 for _ in range(nsects):
                     if sec_ptr + 80 <= len(cmd_data):
                         sname = (

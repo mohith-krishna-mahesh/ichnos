@@ -8,7 +8,8 @@ standard library.
 from __future__ import annotations
 
 import re
-import zlib
+
+from ichnos.core.security import safe_decompress_zlib
 
 # ---------------------------------------------------------------------------
 # Stream extraction
@@ -46,6 +47,8 @@ def extract_streams(data: bytes) -> list[dict]:
     """
     results: list[dict] = []
     for m in _OBJ_RE.finditer(data):
+        if len(results) >= 10000:
+            break
         obj_num = int(m.group(1))
         obj_dict = m.group(2)
         raw_stream = m.group(3)
@@ -59,12 +62,14 @@ def extract_streams(data: bytes) -> list[dict]:
         decoded: bytes | None = None
         if filt == "FlateDecode":
             try:
-                decoded = zlib.decompress(raw_stream)
-            except zlib.error:
+                decoded = safe_decompress_zlib(raw_stream, max_size=32 * 1024 * 1024)
+            except Exception:
                 # Some PDFs omit the zlib header – try raw Deflate
                 try:
-                    decoded = zlib.decompress(raw_stream, -15)
-                except zlib.error:
+                    decoded = safe_decompress_zlib(
+                        raw_stream, max_size=32 * 1024 * 1024, wbits=-15
+                    )
+                except Exception:
                     decoded = None
 
         results.append(

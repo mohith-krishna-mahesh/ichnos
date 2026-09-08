@@ -97,6 +97,8 @@ def extract_apng_frames(data: bytes) -> list[bytes]:
     cur_fdat_data = bytearray()
 
     for c in chunks:
+        if len(frames) >= 100:
+            break
         if c.chunk_type == "fcTL":
             if cur_fctl and cur_fdat_data:
                 # Assemble frame
@@ -107,9 +109,10 @@ def extract_apng_frames(data: bytes) -> list[bytes]:
             cur_fctl = c.data
         elif c.chunk_type == "fdAT" and len(c.data) >= 4:
             # First 4 bytes of fdAT are sequence number; rest is IDAT payload
-            cur_fdat_data.extend(c.data[4:])
+            if len(cur_fdat_data) + len(c.data) - 4 <= 64 * 1024 * 1024:
+                cur_fdat_data.extend(c.data[4:])
 
-    if cur_fctl and cur_fdat_data:
+    if cur_fctl and cur_fdat_data and len(frames) < 100:
         frame_bytes = _assemble_frame_png(ihdr_chunk.data, cur_fctl, bytes(cur_fdat_data), palette_chunks)
         if frame_bytes:
             frames.append(frame_bytes)
@@ -124,10 +127,12 @@ def _assemble_frame_png(
     palette_chunks: list[Any],
 ) -> bytes:
     """Builds a standalone PNG from an fcTL header and concatenated fdAT data."""
-    if len(fctl_data) < 26:
+    if len(fctl_data) < 26 or len(base_ihdr_data) < 13:
         return b""
 
     seq, w, h, x_off, y_off, d_num, d_den, disp, blend = struct.unpack(">IIIIIHHBB", fctl_data[:26])
+    if w > 65536 or h > 65536 or w == 0 or h == 0:
+        return b""
     # Build IHDR with frame dimensions, keeping bit_depth/color_type from base
     bit_depth = base_ihdr_data[8]
     color_type = base_ihdr_data[9]

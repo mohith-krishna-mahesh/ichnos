@@ -5,11 +5,13 @@ PNG parser module for Ichnos stego toolkit.
 from __future__ import annotations
 
 import struct
-import zlib
 from dataclasses import dataclass
 from typing import Any
 
+from ichnos.core.security import safe_decompress_zlib
+
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+MAX_CHUNKS = 10_000
 
 
 @dataclass
@@ -41,17 +43,24 @@ def parse_chunks(data: bytes) -> list[PNGChunk]:
 
     chunks = []
     offset = 8
-    while offset < len(data):
+    while offset < len(data) and len(chunks) < MAX_CHUNKS:
         if offset + 8 > len(data):
             break
-        length, chunk_type = struct.unpack(">I4s", data[offset : offset + 8])
+        try:
+            length, chunk_type = struct.unpack(">I4s", data[offset : offset + 8])
+        except struct.error:
+            break
         chunk_type_str = chunk_type.decode("ascii", errors="replace")
 
-        if offset + 8 + length + 4 > len(data):
+        # Boundary check: length + 4 (crc) must not overflow remaining buffer
+        if length < 0 or offset + 8 + length + 4 > len(data):
             break
 
         chunk_data = data[offset + 8 : offset + 8 + length]
-        crc = struct.unpack(">I", data[offset + 8 + length : offset + 8 + length + 4])[0]
+        try:
+            crc = struct.unpack(">I", data[offset + 8 + length : offset + 8 + length + 4])[0]
+        except struct.error:
+            break
 
         chunks.append(
             PNGChunk(
@@ -71,6 +80,8 @@ def parse_ihdr(data: bytes) -> dict[str, Any]:
     width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
         ">IIBBBBB", data
     )
+    if width > 65536 or height > 65536 or width == 0 or height == 0:
+        raise ValueError(f"PNG dimensions out of supported range (1..65536): {width}x{height}")
     return {
         "width": width,
         "height": height,
@@ -103,7 +114,7 @@ def find_text_chunks(data: bytes) -> list[dict[str, str]]:
                 comp_method = parts[1][0]
                 if comp_method == 0:
                     try:
-                        decompressed = zlib.decompress(parts[1][1:])
+                        decompressed = safe_decompress_zlib(parts[1][1:], max_size=16 * 1024 * 1024)
                         results.append(
                             {
                                 "type": "zTXt",
@@ -124,12 +135,13 @@ def find_text_chunks(data: bytes) -> list[dict[str, str]]:
                     lang, trans_key, text = rem
                     if comp_flag == 1:
                         try:
-                            text = zlib.decompress(text).decode("utf-8", errors="replace")
+                            dec_text = safe_decompress_zlib(text, max_size=16 * 1024 * 1024)
+                            text_str = dec_text.decode("utf-8", errors="replace")
                         except Exception:
-                            text = text.decode("utf-8", errors="replace")
+                            text_str = text.decode("utf-8", errors="replace")
                     else:
-                        text = text.decode("utf-8", errors="replace")
-                    results.append({"type": "iTXt", "keyword": keyword, "text": text})
+                        text_str = text.decode("utf-8", errors="replace")
+                    results.append({"type": "iTXt", "keyword": keyword, "text": text_str})
     return results
 
 

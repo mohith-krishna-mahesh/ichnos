@@ -6,14 +6,17 @@ and compression metadata using standard library tools and pure-Python header par
 
 from __future__ import annotations
 
-import bz2
-import gzip
 import io
-import lzma
 import struct
 import tarfile
 from typing import Any
 
+from ichnos.core.security import (
+    safe_decompress_bz2,
+    safe_decompress_gzip,
+    safe_decompress_xz,
+    sanitize_archive_path,
+)
 from ichnos.forensic.zip import inspect_zip
 
 
@@ -24,7 +27,15 @@ def inspect_tar(data: bytes) -> dict[str, Any]:
         with tarfile.open(fileobj=f, mode="r:*") as tar:
             members = []
             total_size = 0
+            has_path_traversal = False
+            traversal_entries = []
             for m in tar.getmembers():
+                try:
+                    sanitize_archive_path(m.name)
+                except ValueError:
+                    has_path_traversal = True
+                    traversal_entries.append(m.name)
+
                 members.append(
                     {
                         "name": m.name,
@@ -43,10 +54,25 @@ def inspect_tar(data: bytes) -> dict[str, Any]:
                 )
                 total_size += m.size
 
+            is_bomb = False
+            bomb_warning = None
+            if total_size > 100 * 1024 * 1024:
+                ratio = total_size / max(1, len(data))
+                if ratio > 100.0 or total_size > 1024 * 1024 * 1024:
+                    is_bomb = True
+                    bomb_warning = (
+                        f"Tar bomb detected: total uncompressed {total_size / (1024*1024):.1f}MB, "
+                        f"ratio {ratio:.1f}:1"
+                    )
+
             return {
                 "format": "tar",
                 "total_entries": len(members),
                 "total_size": total_size,
+                "is_bomb": is_bomb,
+                "bomb_warning": bomb_warning,
+                "has_path_traversal": has_path_traversal,
+                "traversal_entries": traversal_entries,
                 "entries": members,
             }
     except Exception as e:
@@ -91,19 +117,19 @@ def inspect_rar_header(data: bytes) -> dict[str, Any]:
 
 
 def decompress_stream(data: bytes) -> tuple[str, bytes]:
-    """Decompresses single-stream compressed data (gzip, bz2, xz).
+    """Decompresses single-stream compressed data (gzip, bz2, xz) with bomb protection.
 
     Returns tuple: `(algorithm: str, decompressed_bytes: bytes)`.
     """
     # GZIP (0x1F 0x8B)
     if data.startswith(b"\x1f\x8b"):
-        return "gzip", gzip.decompress(data)
+        return "gzip", safe_decompress_gzip(data)
     # BZIP2 ('BZh')
     if data.startswith(b"BZh"):
-        return "bz2", bz2.decompress(data)
+        return "bz2", safe_decompress_bz2(data)
     # XZ (0xFD '7zXZ\x00')
     if data.startswith(b"\xfd7zXZ\x00"):
-        return "xz", lzma.decompress(data)
+        return "xz", safe_decompress_xz(data)
 
     raise ValueError("Unrecognized compressed stream format")
 

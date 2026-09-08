@@ -4,10 +4,9 @@ LSB extraction for Ichnos (zsteg style).
 
 from __future__ import annotations
 
-import zlib
-
 from ichnos.core.detection import printable_ratio
 from ichnos.core.models import Candidate
+from ichnos.core.security import safe_decompress_zlib
 from ichnos.stego.image.png import parse_chunks, parse_ihdr
 
 
@@ -36,6 +35,9 @@ def extract_raw_pixels(png_data: bytes) -> tuple[bytes, int, int, int]:
     color_type = ihdr["color_type"]
     bit_depth = ihdr["bit_depth"]
 
+    if width > 65536 or height > 65536 or width <= 0 or height <= 0:
+        raise ValueError(f"PNG dimensions out of supported range (1..65536): {width}x{height}")
+
     if bit_depth != 8:
         raise ValueError("Only 8-bit depth supported for LSB")
 
@@ -50,8 +52,15 @@ def extract_raw_pixels(png_data: bytes) -> tuple[bytes, int, int, int]:
     else:
         raise ValueError("Unsupported color type")
 
+    expected_scanline_bytes = height * (1 + width * channels)
+    if expected_scanline_bytes > 128 * 1024 * 1024:
+        raise ValueError(
+            f"Expected uncompressed pixel data ({expected_scanline_bytes // (1024*1024)}MB) exceeds limit"
+        )
+
     idat_data = b"".join(c.data for c in chunks if c.chunk_type == "IDAT")
-    decompressed = zlib.decompress(idat_data)
+    max_len = min(max(expected_scanline_bytes + 4096, 64 * 1024 * 1024), 128 * 1024 * 1024)
+    decompressed = safe_decompress_zlib(idat_data, max_size=max_len)
 
     stride = width * channels
     pixels = bytearray()
@@ -60,6 +69,8 @@ def extract_raw_pixels(png_data: bytes) -> tuple[bytes, int, int, int]:
 
     offset = 0
     for y in range(height):
+        if offset + 1 + stride > len(decompressed):
+            break
         filter_type = decompressed[offset]
         scanline = decompressed[offset + 1 : offset + 1 + stride]
         offset += 1 + stride

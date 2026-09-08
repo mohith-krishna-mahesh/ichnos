@@ -112,6 +112,10 @@ def parse_packet_layers(packet_data: bytes, link_type: int = 1) -> dict[str, Any
     if eth_type == 0x0800 and len(ip_data) >= 20:  # IPv4
         v_ihl = ip_data[0]
         ihl = (v_ihl & 0x0F) * 4
+        if ihl < 20 or ihl > len(ip_data):
+            info["payload"] = ip_data
+            return info
+
         proto = ip_data[9]
         src_ip = socket.inet_ntoa(ip_data[12:16])
         dst_ip = socket.inet_ntoa(ip_data[16:20])
@@ -130,12 +134,18 @@ def parse_packet_layers(packet_data: bytes, link_type: int = 1) -> dict[str, Any
             info["dport"] = dport
             info["tcp_seq"] = seq
             info["tcp_ack"] = ack
-            info["payload"] = transport_data[tcp_offset:]
+            if 20 <= tcp_offset <= len(transport_data):
+                info["payload"] = transport_data[tcp_offset:]
+            else:
+                info["payload"] = transport_data[20:]
         elif proto == 17 and len(transport_data) >= 8:  # UDP
             sport, dport, ulen = struct.unpack("!HHH", transport_data[:6])
             info["sport"] = sport
             info["dport"] = dport
-            info["payload"] = transport_data[8:ulen] if ulen >= 8 else transport_data[8:]
+            if 8 <= ulen <= len(transport_data):
+                info["payload"] = transport_data[8:ulen]
+            else:
+                info["payload"] = transport_data[8:]
         else:
             info["payload"] = transport_data
 
@@ -155,16 +165,25 @@ def parse_packet_layers(packet_data: bytes, link_type: int = 1) -> dict[str, Any
             tcp_offset = ((offset_flags >> 12) & 0x0F) * 4
             info["sport"] = sport
             info["dport"] = dport
-            info["payload"] = transport_data[tcp_offset:]
+            if 20 <= tcp_offset <= len(transport_data):
+                info["payload"] = transport_data[tcp_offset:]
+            else:
+                info["payload"] = transport_data[20:]
         elif next_hdr == 17 and len(transport_data) >= 8:
             sport, dport, ulen = struct.unpack("!HHH", transport_data[:6])
             info["sport"] = sport
             info["dport"] = dport
-            info["payload"] = transport_data[8:ulen] if ulen >= 8 else transport_data[8:]
+            if 8 <= ulen <= len(transport_data):
+                info["payload"] = transport_data[8:ulen]
+            else:
+                info["payload"] = transport_data[8:]
         else:
             info["payload"] = transport_data
 
     return info
+
+
+MAX_PACKETS = 250_000
 
 
 def read_pcap(data: bytes) -> list[PCAPPacket]:
@@ -195,11 +214,11 @@ def read_pcap(data: bytes) -> list[PCAPPacket]:
     offset = 24
     total_len = len(data)
 
-    while offset + 16 <= total_len:
+    while offset + 16 <= total_len and len(packets) < MAX_PACKETS:
         ts_sec, ts_sub, caplen, origlen = struct.unpack(f"{endian}IIII", data[offset : offset + 16])
         offset += 16
 
-        if offset + caplen > total_len:
+        if caplen < 0 or offset + caplen > total_len:
             break
 
         pkt_raw = data[offset : offset + caplen]
@@ -239,7 +258,7 @@ def read_pcapng(data: bytes) -> list[PCAPPacket]:
     ts_resolutions: dict[int, float] = {}  # interface_id -> multiplier
     default_link_type = 1
 
-    while offset + 8 <= total_len:
+    while offset + 8 <= total_len and len(packets) < MAX_PACKETS:
         block_type, block_len = struct.unpack(f"{endian}II", data[offset : offset + 8])
         if block_len < 12 or offset + block_len > total_len:
             break
@@ -297,6 +316,7 @@ def read_pcapng(data: bytes) -> list[PCAPPacket]:
                 res_mult = ts_resolutions.get(iface_id, 1e-6)
                 ts = float(ts_raw) * res_mult
 
+                caplen = min(max(0, caplen), len(body) - 20)
                 pkt_raw = body[20 : 20 + caplen]
                 layers = parse_packet_layers(pkt_raw, default_link_type)
 

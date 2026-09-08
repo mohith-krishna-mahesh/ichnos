@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -113,96 +114,183 @@ class HarvestedParameters:
         }
 
 
+class _EvalContext:
+    """Evaluation context tracking limits for ASTEvaluator."""
+
+    def __init__(self, env: dict[str, Any] | None = None) -> None:
+        self.env = env or {}
+        self.depth = 0
+        self.node_count = 0
+        self.start_time = time.monotonic()
+
+    def check_limits(self) -> None:
+        self.node_count += 1
+        if self.node_count > ASTEvaluator.MAX_NODES:
+            raise ValueError("AST node limit exceeded")
+        if self.depth > ASTEvaluator.MAX_DEPTH:
+            raise ValueError("AST recursion depth exceeded")
+        if (time.monotonic() - self.start_time) > ASTEvaluator.TIMEOUT_SECONDS:
+            raise TimeoutError("AST evaluation timed out")
+
+
 class ASTEvaluator(ast.NodeVisitor):
-    """Safely evaluates AST literals, calls to bytes_to_long, bytes.fromhex, int, and arithmetic."""
+    """Safely evaluates AST literals, calls to bytes_to_long, bytes.fromhex, int, and arithmetic.
+
+    Hardened against:
+    - Recursion depth exhaustion (depth > 50)
+    - AST node explosion (node_count > 2000)
+    - Exponential integer allocation (bit-length > 16384 bits)
+    - Unbounded exponentiation (2**999999999999)
+    - Quadratic string-to-int conversion (int('9'*100000))
+    - Wall-clock timeout (> 1.0s)
+    """
+
+    MAX_DEPTH = 50
+    MAX_NODES = 2000
+    MAX_BITS = 16384
+    MAX_EXP = 4096
+    MAX_STR_INT_LEN = 8192
+    MAX_HEX_LEN = 16384
+    TIMEOUT_SECONDS = 1.0
 
     @classmethod
     def evaluate(cls, node: ast.AST, env: dict[str, Any] | None = None) -> Any:
+        ctx = _EvalContext(env)
+        try:
+            return cls._eval_node(node, ctx)
+        except Exception:
+            return None
+
+    @classmethod
+    def _eval_node(cls, node: ast.AST, ctx: _EvalContext) -> Any:
+        ctx.check_limits()
+        ctx.depth += 1
         try:
             if isinstance(node, ast.Constant):
+                if isinstance(node.value, int) and node.value.bit_length() > cls.MAX_BITS:
+                    return None
+                if isinstance(node.value, str) and len(node.value) > 100_000:
+                    return None
                 return node.value
 
             if isinstance(node, ast.Name):
-                if env and node.id in env:
-                    return env[node.id]
+                if node.id in ctx.env:
+                    return ctx.env[node.id]
                 return None
 
             if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-                val = cls.evaluate(node.operand, env=env)
+                val = cls._eval_node(node.operand, ctx)
                 if isinstance(val, (int, float)):
+                    if isinstance(val, int) and val.bit_length() > cls.MAX_BITS:
+                        return None
                     return -val
 
             if isinstance(node, (ast.List, ast.Tuple)):
-                return [cls.evaluate(elt, env=env) for elt in node.elts]
+                return [cls._eval_node(elt, ctx) for elt in node.elts]
 
             if isinstance(node, ast.Dict):
                 res = {}
                 for k, v in zip(node.keys, node.values):
                     if k is not None:
-                        res[cls.evaluate(k, env=env)] = cls.evaluate(v, env=env)
+                        res[cls._eval_node(k, ctx)] = cls._eval_node(v, ctx)
                 return res
 
             if isinstance(node, ast.BinOp):
-                left = cls.evaluate(node.left, env=env)
-                right = cls.evaluate(node.right, env=env)
+                left = cls._eval_node(node.left, ctx)
+                right = cls._eval_node(node.right, ctx)
                 if isinstance(left, int) and isinstance(right, int):
+                    if left.bit_length() > cls.MAX_BITS or right.bit_length() > cls.MAX_BITS:
+                        return None
                     if isinstance(node.op, ast.Add):
-                        return left + right
+                        res = left + right
+                        return res if res.bit_length() <= cls.MAX_BITS else None
                     if isinstance(node.op, ast.Sub):
-                        return left - right
+                        res = left - right
+                        return res if res.bit_length() <= cls.MAX_BITS else None
                     if isinstance(node.op, ast.Mult):
-                        return left * right
+                        if left.bit_length() + right.bit_length() > cls.MAX_BITS:
+                            return None
+                        res = left * right
+                        return res if res.bit_length() <= cls.MAX_BITS else None
                     if isinstance(node.op, ast.FloorDiv) and right != 0:
                         return left // right
                     if isinstance(node.op, ast.Mod) and right != 0:
                         return left % right
-                    if isinstance(node.op, ast.Pow) and right <= 65537:
-                        return pow(left, right)
+                    if isinstance(node.op, ast.Pow):
+                        if 0 <= right <= cls.MAX_EXP:
+                            if left in (0, 1):
+                                return left
+                            if left.bit_length() * right <= cls.MAX_BITS:
+                                return pow(left, right)
+                        return None
 
             if isinstance(node, ast.Call):
                 # bytes.fromhex("...")
                 if isinstance(node.func, ast.Attribute) and node.func.attr == "fromhex":
-                    arg = cls.evaluate(node.args[0], env=env)
-                    if isinstance(arg, str):
+                    arg = cls._eval_node(node.args[0], ctx)
+                    if isinstance(arg, str) and len(arg) <= cls.MAX_HEX_LEN:
                         return bytes.fromhex(arg)
 
                 # int("...", 16) or int(...)
                 if isinstance(node.func, ast.Name) and node.func.id == "int":
                     if len(node.args) == 1:
-                        arg = cls.evaluate(node.args[0], env=env)
-                        return int(arg)
+                        arg = cls._eval_node(node.args[0], ctx)
+                        if isinstance(arg, str):
+                            if len(arg) > cls.MAX_STR_INT_LEN:
+                                return None
+                            val = int(arg)
+                            return val if val.bit_length() <= cls.MAX_BITS else None
+                        elif isinstance(arg, int):
+                            return arg if arg.bit_length() <= cls.MAX_BITS else None
                     if len(node.args) == 2:
-                        arg = cls.evaluate(node.args[0], env=env)
-                        base = cls.evaluate(node.args[1], env=env)
-                        return int(arg, base)
+                        arg = cls._eval_node(node.args[0], ctx)
+                        base = cls._eval_node(node.args[1], ctx)
+                        if isinstance(arg, str) and isinstance(base, int) and 2 <= base <= 36:
+                            if len(arg) > cls.MAX_STR_INT_LEN:
+                                return None
+                            val = int(arg, base)
+                            return val if val.bit_length() <= cls.MAX_BITS else None
 
                 # bytes_to_long(b"...")
                 if isinstance(node.func, ast.Name) and node.func.id in (
                     "bytes_to_long",
                     "bytes2long",
                 ):
-                    arg = cls.evaluate(node.args[0], env=env)
+                    arg = cls._eval_node(node.args[0], ctx)
                     if isinstance(arg, bytes):
+                        if len(arg) > cls.MAX_BITS // 8 + 1:
+                            return None
                         return int.from_bytes(arg, "big")
                     if isinstance(arg, str):
-                        return int.from_bytes(arg.encode(), "big")
+                        b = arg.encode()
+                        if len(b) > cls.MAX_BITS // 8 + 1:
+                            return None
+                        return int.from_bytes(b, "big")
 
                 # pow(b, e, m) or pow(b, e)
                 if isinstance(node.func, ast.Name) and node.func.id == "pow":
-                    args = [cls.evaluate(a, env=env) for a in node.args]
+                    args = [cls._eval_node(a, ctx) for a in node.args]
                     if len(args) == 3 and all(isinstance(x, int) for x in args):
-                        return pow(args[0], args[1], args[2])
-                    if (
-                        len(args) == 2
-                        and all(isinstance(x, int) for x in args)
-                        and args[1] <= 65537
-                    ):
-                        return pow(args[0], args[1])
+                        b, e, m = args[0], args[1], args[2]
+                        if (
+                            m != 0
+                            and e >= 0
+                            and b.bit_length() <= cls.MAX_BITS
+                            and m.bit_length() <= cls.MAX_BITS
+                            and e.bit_length() <= cls.MAX_BITS
+                        ):
+                            return pow(b, e, m)
+                    if len(args) == 2 and all(isinstance(x, int) for x in args):
+                        b, e = args[0], args[1]
+                        if 0 <= e <= cls.MAX_EXP:
+                            if b in (0, 1):
+                                return b
+                            if b.bit_length() * e <= cls.MAX_BITS:
+                                return pow(b, e)
 
-        except Exception:
             return None
-
-        return None
+        finally:
+            ctx.depth -= 1
 
 
 class CTFHarvester:
@@ -381,7 +469,7 @@ class CTFHarvester:
         assign_regex = re.compile(
             r"(?:^|[;\n])\s*(?:(?:const|let|var|local|my|our|state|final|static|public|private|protected|val|auto|"
             r"uint\d*|int\d*|uint\d*_t|int\d*_t|unsigned\s+long|unsigned\s+int|long\s+long|long|int|byte|char|"
-            r"string|bytes\d*)\s+)*(?:mut\s+)?[$@%]?([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*[a-zA-Z0-9_<>\[\]]+)?\s*(?:[:=]|:=)\s*"
+            r"string|bytes\d*)\s+){0,4}(?:mut\s+)?[$@%]?([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*[a-zA-Z0-9_<>\[\]]+)?\s*(?:[:=]|:=)\s*"
             r"(0x[0-9a-fA-F]+|[0-9]+[nLuU]*|b?['\"`][^'\"`]*['\"`])\s*[;,]?",
             re.MULTILINE,
         )
@@ -424,6 +512,8 @@ class CTFHarvester:
     @classmethod
     def _classify_and_store(cls, name: str, val: Any, params: HarvestedParameters) -> None:
         """Classify a variable name and value into the appropriate parameter category."""
+        if len(params.all_vars) >= 1000:
+            return
         params.all_vars[name] = val
         norm = name.strip().lower()
 

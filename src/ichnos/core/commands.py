@@ -38,17 +38,19 @@ def handle_solve(
     **kwargs: Any,
 ) -> Result:
     import shlex
+    import sys
     from pathlib import Path
 
     from ichnos.core.solver import AutoSolver
 
     target_list: list[str] | None = None
     active_text: str | None = None
+    posix_mode = sys.platform != "win32"
 
     if targets:
         if isinstance(targets, str):
             try:
-                raw_parts = shlex.split(targets)
+                raw_parts = shlex.split(targets, posix=posix_mode)
             except ValueError:
                 raw_parts = [t for t in targets.split() if t]
         else:
@@ -71,7 +73,7 @@ def handle_solve(
 
         if target_list is None:
             try:
-                parts = shlex.split(source)
+                parts = shlex.split(source, posix=posix_mode)
             except ValueError:
                 parts = source.split()
 

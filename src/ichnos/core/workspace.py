@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ichnos.core.detection import detect_file_type
+from ichnos.core.security import sanitize_archive_path
 
 
 class FileCategory(str, Enum):
@@ -206,7 +207,8 @@ class WorkspaceFile:
     def data(self) -> bytes:
         if self._data is None:
             try:
-                self._data = self.path.read_bytes()
+                with open(self.path, "rb") as f:
+                    self._data = f.read(100 * 1024 * 1024)
             except Exception:
                 self._data = b""
         return self._data
@@ -339,7 +341,33 @@ class ChallengeWorkspace:
                     td = Path(tempfile.mkdtemp(prefix="ichnos_chall_"))
                     self._temp_dirs.append(td)
                     with zipfile.ZipFile(arc.path, "r") as zf:
-                        zf.extractall(td)
+                        total_extracted = 0
+                        max_extract_bytes = 100 * 1024 * 1024
+                        count = 0
+                        for info in zf.infolist():
+                            count += 1
+                            if count > 1000:
+                                break
+                            try:
+                                clean_rel = sanitize_archive_path(info.filename, target_dir=td)
+                            except ValueError:
+                                continue
+                            dest_path = td / clean_rel
+                            if info.is_dir():
+                                dest_path.mkdir(parents=True, exist_ok=True)
+                                continue
+                            if total_extracted + info.file_size > max_extract_bytes:
+                                break
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            with zf.open(info) as src_f, open(dest_path, "wb") as dst_f:
+                                remaining = max_extract_bytes - total_extracted
+                                chunk = src_f.read(min(65536, remaining))
+                                while chunk:
+                                    dst_f.write(chunk)
+                                    total_extracted += len(chunk)
+                                    if total_extracted >= max_extract_bytes:
+                                        break
+                                    chunk = src_f.read(min(65536, max_extract_bytes - total_extracted))
                     # Add unpacked files
                     for item in sorted(td.rglob("*")):
                         if item.is_file():
@@ -353,16 +381,37 @@ class ChallengeWorkspace:
                     td = Path(tempfile.mkdtemp(prefix="ichnos_chall_"))
                     self._temp_dirs.append(td)
                     with tarfile.open(arc.path, "r:*") as tf:
-                        if hasattr(tarfile, "data_filter"):
-                            tf.extractall(td, filter="data")
-                        else:
-                            for member in tf.getmembers():
-                                member_path = (td / member.name).resolve()
-                                if (
-                                    td.resolve() in member_path.parents
-                                    or member_path == td.resolve()
-                                ):
-                                    tf.extract(member, td)
+                        total_extracted = 0
+                        max_extract_bytes = 100 * 1024 * 1024
+                        count = 0
+                        for member in tf.getmembers():
+                            count += 1
+                            if count > 1000:
+                                break
+                            try:
+                                clean_rel = sanitize_archive_path(member.name, target_dir=td)
+                            except ValueError:
+                                continue
+                            dest_path = td / clean_rel
+                            if member.isdir():
+                                dest_path.mkdir(parents=True, exist_ok=True)
+                                continue
+                            if member.islnk() or member.issym():
+                                continue
+                            if total_extracted + member.size > max_extract_bytes:
+                                break
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            fobj = tf.extractfile(member)
+                            if fobj is not None:
+                                with fobj, open(dest_path, "wb") as dst_f:
+                                    remaining = max_extract_bytes - total_extracted
+                                    chunk = fobj.read(min(65536, remaining))
+                                    while chunk:
+                                        dst_f.write(chunk)
+                                        total_extracted += len(chunk)
+                                        if total_extracted >= max_extract_bytes:
+                                            break
+                                        chunk = fobj.read(min(65536, max_extract_bytes - total_extracted))
                     for item in sorted(td.rglob("*")):
                         if item.is_file():
                             rel = f"{arc.relative_path}/{item.relative_to(td)}"

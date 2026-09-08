@@ -33,6 +33,7 @@ from ichnos.core.security import (
     sanitize_archive_path,
     sanitize_terminal_output,
 )
+from ichnos.core.workspace import ChallengeWorkspace
 from ichnos.forensic.archives import inspect_tar
 from ichnos.forensic.zip import inspect_zip
 from ichnos.pcap.parser import read_pcap, read_pcapng
@@ -290,3 +291,24 @@ def test_sanitize_terminal_output_ascii_controls():
     assert "\x07" not in cleaned
     assert "\x08" not in cleaned
     assert "End" in cleaned
+
+
+def test_workspace_zip_slip_ignored():
+    """Ensures Zip Slip path traversal entries in archives are skipped without extracting outside."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        zip_path = p / "malicious.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("../../evil.txt", "pwned")
+            zf.writestr("safe.txt", "hello")
+
+        ws = ChallengeWorkspace.load(zip_path, extract_archives=True)
+        rel_paths = [f.relative_path for f in ws.files]
+        assert not any("evil.txt" in rp for rp in rel_paths)
+        assert any("safe.txt" in rp for rp in rel_paths)
+        assert not (p.parent / "evil.txt").exists()
+        ws.cleanup()
+

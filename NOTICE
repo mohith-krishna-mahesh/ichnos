@@ -1,0 +1,31 @@
+Project Ichnos
+Copyright (c) 2026 Ichnos Contributors
+
+This product includes software developed by the Ichnos open-source community
+and third-party open-source components:
+
+1. Textual & Rich
+   Copyright (c) Textualize, Inc.
+   Licensed under the MIT License.
+   https://github.com/Textualize/textual
+   https://github.com/Textualize/rich
+
+2. Typer
+   Copyright (c) Sebastián Ramírez
+   Licensed under the MIT License.
+   https://github.com/fastapi/typer
+
+3. Pydantic
+   Copyright (c) 2017, Samuel Colvin and contributors
+   Licensed under the MIT License.
+   https://github.com/pydantic/pydantic
+
+4. ZXing-C++ (zxing-cpp)
+   Copyright (c) ZXing authors, Nu-book Inc., and Axel Waggershauser
+   Licensed under the Apache License, Version 2.0.
+   https://github.com/zxing-cpp/zxing-cpp
+
+5. English N-Gram Quadgram Data
+   Derived from public domain English corpus linguistic frequency tables.
+
+Licensed under the MIT License. See the LICENSE file for details.

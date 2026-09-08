@@ -1,0 +1,25 @@
+{
+  "name": "monochrome",
+  "primary": "#ffffff",
+  "secondary": "#cccccc",
+  "accent": "#aaaaaa",
+  "foreground": "#e0e0e0",
+  "background": "#000000",
+  "surface": "#121212",
+  "panel": "#1a1a1a",
+  "warning": "#cccccc",
+  "error": "#ffffff",
+  "success": "#cccccc",
+  "dark": true,
+  "variables": {
+    "border-color": "#333333",
+    "border-focused": "#ffffff",
+    "border-variant": "#666666",
+    "text-muted": "#777777",
+    "text-dim": "#555555",
+    "header-bg": "#121212",
+    "status-bg": "#121212",
+    "prompt-bg": "#000000",
+    "output-bg": "#050505"
+  }
+}

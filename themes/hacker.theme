@@ -1,0 +1,25 @@
+{
+  "name": "hacker",
+  "primary": "#8ba4b0",
+  "secondary": "#8992a7",
+  "accent": "#8ea4a2",
+  "foreground": "#BBBBBB",
+  "background": "#0A0B0A",
+  "surface": "#111111",
+  "panel": "#12120f",
+  "warning": "#c29b38",
+  "error": "#c96565",
+  "success": "#8ea4a2",
+  "dark": true,
+  "variables": {
+    "border-color": "#393836",
+    "border-focused": "#8ba4b0",
+    "border-variant": "#8992a7",
+    "text-muted": "#858585",
+    "text-dim": "#625e5a",
+    "header-bg": "#111111",
+    "status-bg": "#111111",
+    "prompt-bg": "#0A0B0A",
+    "output-bg": "#0D0E0D"
+  }
+}

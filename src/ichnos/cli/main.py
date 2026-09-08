@@ -21,6 +21,9 @@ def main_callback(
     json_output: bool = typer.Option(
         False, "--json", help="Output as JSON instead of human-readable format."
     ),
+    theme: str | None = typer.Option(
+        None, "--theme", "-t", help="Theme to use for the interactive TUI."
+    ),
 ):
     if version:
         typer.echo(f"ichnos {__version__}")
@@ -30,7 +33,10 @@ def main_callback(
     if ctx.invoked_subcommand is None:
         from ichnos.ui.app import IchnosApp
 
-        IchnosApp().run()
+        app_instance = IchnosApp()
+        if theme:
+            app_instance.theme = theme
+        app_instance.run()
         raise typer.Exit()
 
 

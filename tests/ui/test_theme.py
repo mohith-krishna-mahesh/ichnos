@@ -108,3 +108,99 @@ def test_app_theme_command_dispatch(monkeypatch, tmp_path):
             )
 
     asyncio.run(_test())
+
+
+def test_canonical_theme_files_exist_and_valid():
+    """Verify that all canonical .theme files in themes/ exist and parse as valid Theme objects."""
+    from pathlib import Path
+
+    from ichnos.ui.theme import BUILTIN_THEMES, load_theme_file
+
+    themes_repo_dir = Path(__file__).parent.parent.parent / "themes"
+    assert themes_repo_dir.is_dir()
+
+    for name in ["hacker", "cyber", "matrix", "monochrome", "dracula", "nord"]:
+        theme_path = themes_repo_dir / f"{name}.theme"
+        assert theme_path.exists(), f"Missing canonical theme file: {theme_path}"
+
+        loaded = load_theme_file(theme_path)
+        assert loaded is not None, f"Failed to parse {theme_path}"
+        assert loaded.name == name
+        builtin = BUILTIN_THEMES[name]
+        assert str(loaded.primary).lower() == str(builtin.primary).lower()
+        assert str(loaded.background).lower() == str(builtin.background).lower()
+
+
+def test_discover_user_themes_from_directory(tmp_path, monkeypatch):
+    """Verify that placing a .theme file into the user themes directory makes it available."""
+    from ichnos.ui.theme import discover_user_themes, get_available_themes
+
+    themes_dir = tmp_path / "themes"
+    themes_dir.mkdir()
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
+    monkeypatch.setenv("ICHNOS_CONFIG_DIR", str(tmp_path))
+
+    # Write a new theme file: synthwave.theme
+    synthwave_path = themes_dir / "synthwave.theme"
+    synthwave_path.write_text(
+        '{"name": "synthwave", "primary": "#ff007f", "background": "#120024"}'
+    )
+
+    discovered = discover_user_themes()
+    assert "synthwave" in discovered
+    assert str(discovered["synthwave"].primary).lower() == "#ff007f"
+
+    avail = get_available_themes()
+    assert "synthwave" in avail
+
+
+def test_user_theme_overrides_builtin(tmp_path, monkeypatch):
+    """Verify that a user .theme file with a built-in name overrides the built-in theme."""
+    from ichnos.ui.theme import HACKER_THEME, discover_user_themes, register_ichnos_themes
+
+    themes_dir = tmp_path / "themes"
+    themes_dir.mkdir()
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
+    monkeypatch.setenv("ICHNOS_CONFIG_DIR", str(tmp_path))
+
+    # Override hacker theme with customized primary color
+    override_path = themes_dir / "hacker.theme"
+    override_path.write_text(
+        '{"name": "hacker", "primary": "#00ffff", "background": "#000000"}'
+    )
+
+    discovered = discover_user_themes()
+    assert "hacker" in discovered
+    assert str(discovered["hacker"].primary).lower() == "#00ffff"
+    assert str(HACKER_THEME.primary).lower() != "#00ffff"
+
+    # In Textual app, registering themes should register the overridden hacker theme
+    app = IchnosApp()
+    register_ichnos_themes(app)
+    app.theme = "hacker"
+    assert str(app.current_theme.primary).lower() == "#00ffff"
+
+
+def test_malformed_theme_file_resilience(tmp_path, monkeypatch):
+    """Verify that invalid JSON or incomplete theme files are safely skipped without crash."""
+    from ichnos.ui.theme import discover_user_themes, load_theme_file
+
+    themes_dir = tmp_path / "themes"
+    themes_dir.mkdir()
+    monkeypatch.setenv("ICHNOS_THEMES_DIR", str(themes_dir))
+
+    # 1. Invalid JSON
+    bad_json = themes_dir / "corrupt.theme"
+    bad_json.write_text("NOT VALID JSON {{{")
+    assert load_theme_file(bad_json) is None
+
+    # 2. Missing primary or background
+    missing_fields = themes_dir / "missing.theme"
+    missing_fields.write_text('{"name": "missing", "secondary": "#112233"}')
+    assert load_theme_file(missing_fields) is None
+
+    # 3. discover_user_themes skips both without errors
+    discovered = discover_user_themes()
+    assert "corrupt" not in discovered
+    assert "missing" not in discovered
+

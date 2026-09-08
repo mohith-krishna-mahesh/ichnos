@@ -1,0 +1,151 @@
+name: Release Matrix Build & Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+            artifact_name: ichnos-macos-arm64
+            binary_name: ichnos
+          - os: macos
+            arch: x86_64
+            runner: macos-13
+            artifact_name: ichnos-macos-x86_64
+            binary_name: ichnos
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-latest
+            artifact_name: ichnos-linux-x86_64
+            binary_name: ichnos
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
+            artifact_name: ichnos-windows-x86_64.exe
+            binary_name: ichnos.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies and build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          pip install pytest ruff nuitka zstandard ordered-set
+
+      - name: Run test suite
+        run: |
+          ruff check src/ tests/
+          pytest tests/ -v
+
+      - name: Build Nuitka onefile binary
+        shell: bash
+        run: |
+          python scripts/build_nuitka.py --mode onefile --clean
+
+      - name: Out-of-tree smoke test
+        shell: bash
+        run: |
+          mkdir -p ../clean_test_dir
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cp dist/ichnos.exe ../clean_test_dir/
+            cd ../clean_test_dir
+            ./ichnos.exe --help
+            ./ichnos.exe --version
+            ./ichnos.exe crypto caesar "KHOOR" --shift 3
+          else
+            cp dist/ichnos ../clean_test_dir/
+            cd ../clean_test_dir
+            ./ichnos --help
+            ./ichnos --version
+            ./ichnos crypto caesar "KHOOR" --shift 3
+          fi
+
+      # ------------------------------------------------------------------------
+      # Optional Signing & Notarization Placeholders
+      # ------------------------------------------------------------------------
+      - name: Codesign macOS binary (if certificates provided)
+        if: matrix.os == 'macos' && env.APPLE_CERT_P12 != ''
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          echo "Placeholder: Import signing identity and codesign --deep --options runtime dist/ichnos"
+
+      - name: Sign Windows binary (if certificates provided)
+        if: matrix.os == 'windows' && env.WINDOWS_CERT_P12 != ''
+        env:
+          WINDOWS_CERT_P12: ${{ secrets.WINDOWS_CERT_P12 }}
+        shell: bash
+        run: |
+          echo "Placeholder: signtool sign /f certificate.pfx /t http://timestamp.digicert.com dist/ichnos.exe"
+
+      # ------------------------------------------------------------------------
+      # Package Artifacts
+      # ------------------------------------------------------------------------
+      - name: Rename and stage release artifact
+        shell: bash
+        run: |
+          mkdir -p release_artifacts
+          cp "dist/${{ matrix.binary_name }}" "release_artifacts/${{ matrix.artifact_name }}"
+          cd release_artifacts
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.sha256"
+          fi
+
+      - name: Upload artifact to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release_artifacts/*
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all_artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release_dist
+          find all_artifacts -type f -exec cp {} release_dist/ \;
+          ls -la release_dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_dist/*
+          generate_release_notes: true

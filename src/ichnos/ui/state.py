@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -10,7 +11,14 @@ from pydantic import BaseModel, Field
 from ichnos.core.models import Candidate, Input, Result
 
 DEFAULT_CONFIG_DIR = Path(
-    os.environ.get("ICHNOS_CONFIG_DIR", str(Path.home() / ".config" / "ichnos"))
+    os.environ.get(
+        "ICHNOS_CONFIG_DIR",
+        (
+            os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")) + "/ichnos"
+            if sys.platform == "win32"
+            else (os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")) + "/ichnos")
+        ),
+    )
 )
 DEFAULT_HISTORY_FILE = Path(
     os.environ.get("ICHNOS_HISTORY_FILE", str(DEFAULT_CONFIG_DIR / "history"))

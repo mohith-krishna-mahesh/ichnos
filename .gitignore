@@ -1,4 +1,4 @@
-# Python bytecode
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,18 +16,32 @@ ENV/
 .ruff_cache/
 .mypy_cache/
 htmlcov/
+test-results/
+prof/
+*.prof
 
-# Build & Packaging
+# Build, Packaging & Nuitka Distribution
 build/
 dist/
+*.dist/
+*.build/
+*.onefile-build/
 *.egg-info/
+*.whl
+*.bin
+*.exe
+*crash-report.xml
+nuitka-crash-report.xml
 
 # Operating System & IDEs
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
 *.swp
 *.swo
+*.orig
+*.rej
 
-# Local scratch directory
+# Local development scratch directory
 scratch/

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual import work
 from textual.app import App
 
@@ -18,13 +20,142 @@ from ichnos.ui.widgets.progress import IchnosProgress
 from ichnos.ui.widgets.prompt import IchnosPrompt
 from ichnos.ui.widgets.status import IchnosStatusBar
 
+_THEME_TCSS_FILE = Path(__file__).parent / "theme.tcss"
+_EMBEDDED_TCSS = """
+Screen {
+    background: $background;
+    color: $foreground;
+}
+StartupScreen {
+    align: center middle;
+    background: $background;
+}
+#startup-container {
+    width: 104;
+    max-width: 98%;
+    height: auto;
+    border: double $primary;
+    padding: 1 1;
+    background: $surface;
+    align: center middle;
+    content-align: center middle;
+}
+MascotWidget {
+    color: $primary;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    width: 100%;
+    height: auto;
+}
+#startup-logo {
+    color: $primary;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    width: 100%;
+    text-style: bold;
+}
+#startup-disclaimer {
+    color: $text-dim;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    text-style: italic;
+    margin: 1 0;
+    width: 100%;
+}
+#startup-prompt {
+    color: $primary;
+    text-style: bold;
+    text-align: center;
+    align: center middle;
+    content-align: center middle;
+    margin-top: 1;
+    width: 100%;
+}
+MainScreen {
+    layout: vertical;
+    background: $background;
+}
+IchnosHeader {
+    dock: top;
+    height: 3;
+    background: $header-bg;
+    border-bottom: solid $border-color;
+    color: $foreground;
+    padding: 0 1;
+}
+IchnosOutput {
+    height: 1fr;
+    background: $output-bg;
+    border: round $border-color;
+    padding: 1 1;
+    overflow-y: scroll;
+}
+#prompt-container {
+    dock: bottom;
+    height: auto;
+    background: $header-bg;
+    border-top: solid $border-color;
+    padding: 0 1;
+}
+IchnosPrompt {
+    width: 100%;
+    height: 3;
+    border: solid $border-color;
+    background: $prompt-bg;
+    color: $foreground;
+}
+IchnosPrompt:focus {
+    border: double $border-focused;
+}
+#completions-view {
+    dock: bottom;
+    max-height: 8;
+    background: $header-bg;
+    border: solid $border-focused;
+    color: $text-muted;
+    padding: 0 1;
+}
+.completion-item {
+    padding: 0 1;
+}
+.completion-item-active {
+    background: $border-color;
+    color: $primary;
+    text-style: bold;
+}
+IchnosStatusBar {
+    dock: bottom;
+    height: 1;
+    background: $status-bg;
+    color: $text-muted;
+    padding: 0 1;
+}
+IchnosProgress {
+    height: 1;
+    color: $warning;
+    text-style: bold;
+    background: $status-bg;
+}
+"""
+
+try:
+    if _THEME_TCSS_FILE.is_file():
+        _APP_CSS = _THEME_TCSS_FILE.read_text(encoding="utf-8")
+    else:
+        _APP_CSS = _EMBEDDED_TCSS
+except Exception:
+    _APP_CSS = _EMBEDDED_TCSS
+
 
 class IchnosApp(App):
     """Interactive persistent terminal application for Ichnos."""
 
     TITLE = "Ichnos"
     SUB_TITLE = "Modular Security / CTF Toolkit"
-    CSS_PATH = "theme.tcss"
+    DEFAULT_CSS = _APP_CSS
 
     SCREENS = {
         "startup": StartupScreen,

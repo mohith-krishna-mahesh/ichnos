@@ -162,18 +162,29 @@ class IchnosApp(App):
         "main": MainScreen,
     }
 
-    def __init__(self, **kwargs):
+    def __init__(self, initial_theme: str | None = None, **kwargs):
         super().__init__(**kwargs)
         self.ui_state = UIState()
         self._active_worker = None
+        self.explicit_theme = initial_theme
         from ichnos.ui.theme import register_ichnos_themes
 
         register_ichnos_themes(self)
+        if self.explicit_theme:
+            try:
+                self.theme = self.explicit_theme
+            except Exception:
+                pass
 
     def on_mount(self) -> None:
         from ichnos.ui.theme import register_ichnos_themes
 
         register_ichnos_themes(self)
+        if self.explicit_theme:
+            try:
+                self.theme = self.explicit_theme
+            except Exception:
+                pass
         self.ui_state.load_history()
         self.push_screen("startup")
 

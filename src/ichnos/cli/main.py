@@ -33,10 +33,7 @@ def main_callback(
     if ctx.invoked_subcommand is None:
         from ichnos.ui.app import IchnosApp
 
-        app_instance = IchnosApp()
-        if theme:
-            app_instance.theme = theme
-        app_instance.run()
+        IchnosApp(initial_theme=theme).run()
         raise typer.Exit()
 
 

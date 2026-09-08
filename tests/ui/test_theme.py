@@ -120,25 +120,32 @@ def test_app_theme_command_dispatch(monkeypatch, tmp_path):
 
 
 def test_canonical_theme_files_exist_and_valid():
-    """Verify that all canonical .theme files in themes/ exist and parse as valid Theme objects."""
+    """Verify that all canonical .theme files in themes/ and src/ichnos/themes/ exist and parse as valid Theme objects."""
+    import json
     from pathlib import Path
 
-    from ichnos.ui.theme import _DEFAULT_THEME_SPECS, load_theme_file
+    from ichnos.ui.theme import load_theme_file
 
-    themes_repo_dir = Path(__file__).parent.parent.parent / "themes"
-    assert themes_repo_dir.is_dir()
+    repo_themes = Path(__file__).parent.parent.parent / "themes"
+    pkg_themes = Path(__file__).parent.parent.parent / "src" / "ichnos" / "themes"
+    assert repo_themes.is_dir()
+    assert pkg_themes.is_dir()
 
     for name in ["hacker", "cyber", "matrix", "monochrome", "dracula", "nord"]:
-        theme_path = themes_repo_dir / f"{name}.theme"
-        assert theme_path.exists(), f"Missing canonical theme file: {theme_path}"
+        for directory in (repo_themes, pkg_themes):
+            theme_path = directory / f"{name}.theme"
+            assert theme_path.exists(), f"Missing canonical theme file: {theme_path}"
 
-        loaded = load_theme_file(theme_path)
-        assert loaded is not None, f"Failed to parse {theme_path}"
-        assert loaded.name == name
-        # Verify the repo .theme files match the embedded defaults
-        spec = _DEFAULT_THEME_SPECS[name]
-        assert str(loaded.primary).lower() == spec["primary"].lower()
-        assert str(loaded.background).lower() == spec["background"].lower()
+            data = json.loads(theme_path.read_text(encoding="utf-8"))
+            assert data.get("name") == name
+            assert "primary" in data
+            assert "background" in data
+
+            loaded = load_theme_file(theme_path)
+            assert loaded is not None, f"Failed to parse {theme_path}"
+            assert loaded.name == name
+            assert loaded.primary is not None
+            assert loaded.background is not None
 
 
 def test_discover_user_themes_from_directory(tmp_path, monkeypatch):

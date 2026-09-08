@@ -1,9 +1,16 @@
-"""Theme management and configuration for Ichnos TUI."""
+"""Theme management and configuration for Ichnos TUI.
+
+All themes are loaded exclusively from external .theme JSON files located in the
+user's configuration directory (~/.config/ichnos/themes/ or %APPDATA%/ichnos/themes/).
+This module contains zero hardcoded theme palettes or Python Theme definitions.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,172 +25,28 @@ DEFAULT_CONFIG_FILE = Path(
     os.environ.get("ICHNOS_CONFIG_FILE", str(DEFAULT_CONFIG_DIR / "config.json"))
 )
 
-# ---------------------------------------------------------------------------
-# Embedded default theme specifications.
-# These are the canonical definitions that get written to the user's config
-# directory (~/.config/ichnos/themes/) on first run.  After seeding, the
-# .theme JSON files on disk are the ONLY source of truth — nothing in this
-# module constructs Theme objects directly.
-# ---------------------------------------------------------------------------
-_DEFAULT_THEME_SPECS: dict[str, dict[str, Any]] = {
-    "hacker": {
-        "name": "hacker",
-        "primary": "#8ba4b0",
-        "secondary": "#8992a7",
-        "accent": "#8ea4a2",
-        "foreground": "#BBBBBB",
-        "background": "#0A0B0A",
-        "surface": "#111111",
-        "panel": "#12120f",
-        "warning": "#c29b38",
-        "error": "#c96565",
-        "success": "#8ea4a2",
-        "dark": True,
-        "variables": {
-            "border-color": "#393836",
-            "border-focused": "#8ba4b0",
-            "border-variant": "#8992a7",
-            "text-muted": "#858585",
-            "text-dim": "#625e5a",
-            "header-bg": "#111111",
-            "status-bg": "#111111",
-            "prompt-bg": "#0A0B0A",
-            "output-bg": "#0D0E0D",
-        },
-    },
-    "cyber": {
-        "name": "cyber",
-        "primary": "#00e5ff",
-        "secondary": "#38bdf8",
-        "accent": "#a855f7",
-        "foreground": "#f8fafc",
-        "background": "#070a12",
-        "surface": "#0f172a",
-        "panel": "#090d16",
-        "warning": "#fbbf24",
-        "error": "#ef4444",
-        "success": "#22c55e",
-        "dark": True,
-        "variables": {
-            "border-color": "#1e293b",
-            "border-focused": "#00e5ff",
-            "border-variant": "#38bdf8",
-            "text-muted": "#94a3b8",
-            "text-dim": "#64748b",
-            "header-bg": "#0f172a",
-            "status-bg": "#1e293b",
-            "prompt-bg": "#090d16",
-            "output-bg": "#090d16",
-        },
-    },
-    "matrix": {
-        "name": "matrix",
-        "primary": "#00ff66",
-        "secondary": "#00cc55",
-        "accent": "#88ff88",
-        "foreground": "#d4ffd4",
-        "background": "#050a05",
-        "surface": "#0a140a",
-        "panel": "#0d1a0d",
-        "warning": "#d4aa00",
-        "error": "#cc3333",
-        "success": "#00ff66",
-        "dark": True,
-        "variables": {
-            "border-color": "#1b381b",
-            "border-focused": "#00ff66",
-            "border-variant": "#00cc55",
-            "text-muted": "#4d994d",
-            "text-dim": "#2e5c2e",
-            "header-bg": "#0a140a",
-            "status-bg": "#0a140a",
-            "prompt-bg": "#050a05",
-            "output-bg": "#070f07",
-        },
-    },
-    "monochrome": {
-        "name": "monochrome",
-        "primary": "#ffffff",
-        "secondary": "#cccccc",
-        "accent": "#aaaaaa",
-        "foreground": "#e0e0e0",
-        "background": "#000000",
-        "surface": "#121212",
-        "panel": "#1a1a1a",
-        "warning": "#cccccc",
-        "error": "#ffffff",
-        "success": "#cccccc",
-        "dark": True,
-        "variables": {
-            "border-color": "#333333",
-            "border-focused": "#ffffff",
-            "border-variant": "#666666",
-            "text-muted": "#777777",
-            "text-dim": "#555555",
-            "header-bg": "#121212",
-            "status-bg": "#121212",
-            "prompt-bg": "#000000",
-            "output-bg": "#050505",
-        },
-    },
-    "dracula": {
-        "name": "dracula",
-        "primary": "#bd93f9",
-        "secondary": "#ff79c6",
-        "accent": "#8be9fd",
-        "foreground": "#f8f8f2",
-        "background": "#1e1f29",
-        "surface": "#282a36",
-        "panel": "#21222c",
-        "warning": "#ffb86c",
-        "error": "#ff5555",
-        "success": "#50fa7b",
-        "dark": True,
-        "variables": {
-            "border-color": "#44475a",
-            "border-focused": "#bd93f9",
-            "border-variant": "#ff79c6",
-            "text-muted": "#6272a4",
-            "text-dim": "#44475a",
-            "header-bg": "#282a36",
-            "status-bg": "#21222c",
-            "prompt-bg": "#1e1f29",
-            "output-bg": "#1e1f29",
-        },
-    },
-    "nord": {
-        "name": "nord",
-        "primary": "#88c0d0",
-        "secondary": "#81a1c1",
-        "accent": "#8fbcbb",
-        "foreground": "#eceff4",
-        "background": "#242933",
-        "surface": "#2e3440",
-        "panel": "#3b4252",
-        "warning": "#ebcb8b",
-        "error": "#bf616a",
-        "success": "#a3be8c",
-        "dark": True,
-        "variables": {
-            "border-color": "#434c5e",
-            "border-focused": "#88c0d0",
-            "border-variant": "#81a1c1",
-            "text-muted": "#d8dee9",
-            "text-dim": "#4c566a",
-            "header-bg": "#2e3440",
-            "status-bg": "#2e3440",
-            "prompt-bg": "#242933",
-            "output-bg": "#242933",
-        },
-    },
-}
-
 
 def get_user_themes_dir() -> Path:
     """Returns directory containing user-provided custom .theme files."""
     if "ICHNOS_THEMES_DIR" in os.environ:
         return Path(os.environ["ICHNOS_THEMES_DIR"])
     return DEFAULT_CONFIG_DIR / "themes"
+
+
+def get_default_themes_dir() -> Path | None:
+    """Finds the directory containing shipped canonical .theme files."""
+    candidates = [
+        # 1. Bundled inside the package: ichnos/themes
+        Path(__file__).resolve().parent.parent / "themes",
+        # 2. Next to executable (for standalone / onefile binary distributions)
+        Path(sys.executable).resolve().parent / "themes",
+        # 3. Source repository root themes/ directory
+        Path(__file__).resolve().parents[3] / "themes",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir() and any(candidate.glob("*.theme")):
+            return candidate
+    return None
 
 
 def load_theme_file(path: Path) -> Theme | None:
@@ -243,17 +106,19 @@ def load_theme_file(path: Path) -> Theme | None:
 def seed_user_themes_dir() -> None:
     """Ensures user themes directory exists and contains default .theme files.
 
-    On first run (or when files are missing), writes the embedded default theme
-    specs to the user config directory.  Existing files are never overwritten,
-    so user customisations are preserved.
+    Copies shipped canonical .theme files from the package or binary directory
+    to the user config directory (~/.config/ichnos/themes/). Existing files
+    are never overwritten, preserving all user modifications.
     """
     themes_dir = get_user_themes_dir()
     try:
         themes_dir.mkdir(parents=True, exist_ok=True)
-        for name, spec in _DEFAULT_THEME_SPECS.items():
-            target_file = themes_dir / f"{name}.theme"
-            if not target_file.exists():
-                target_file.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+        src_dir = get_default_themes_dir()
+        if src_dir is not None:
+            for src_file in src_dir.glob("*.theme"):
+                dest_file = themes_dir / src_file.name
+                if not dest_file.exists():
+                    shutil.copy2(src_file, dest_file)
     except Exception:
         pass
 
@@ -261,7 +126,8 @@ def seed_user_themes_dir() -> None:
 def discover_user_themes() -> dict[str, Theme]:
     """Discovers all .theme and .json files in the user themes directory.
 
-    Ensures the themes directory is seeded with defaults before scanning.
+    Seeds the themes directory with default files if empty, then parses
+    every .theme file found on disk.
     """
     seed_user_themes_dir()
     themes_dir = get_user_themes_dir()
@@ -277,6 +143,19 @@ def discover_user_themes() -> dict[str, Theme]:
                     discovered[theme.name] = theme
     except OSError:
         pass
+
+    # If user themes dir had no readable themes, attempt fallback to default themes dir
+    if not discovered:
+        src_dir = get_default_themes_dir()
+        if src_dir and src_dir != themes_dir:
+            try:
+                for p in sorted(src_dir.iterdir()):
+                    if p.is_file() and p.suffix.lower() in (".theme", ".json"):
+                        theme = load_theme_file(p)
+                        if theme:
+                            discovered[theme.name] = theme
+            except OSError:
+                pass
 
     return discovered
 
@@ -305,7 +184,7 @@ def save_config(cfg: dict[str, Any]) -> None:
 
 
 def get_available_themes() -> list[str]:
-    """Returns list of all available theme names (discovered .theme files + config custom themes)."""
+    """Returns list of all available theme names discovered from .theme files."""
     user_themes = list(discover_user_themes().keys())
     cfg = load_config()
     config_customs = list(cfg.get("custom_themes", {}).keys())
@@ -320,12 +199,15 @@ def get_available_themes() -> list[str]:
 
 
 def get_active_theme_name() -> str:
-    """Returns the name of the currently configured theme, defaulting to 'hacker'."""
+    """Returns the name of the currently configured theme, defaulting to 'hacker' or first available."""
     cfg = load_config()
     theme_name = cfg.get("theme", "hacker")
-    if theme_name in get_available_themes():
+    avail = get_available_themes()
+    if theme_name in avail:
         return theme_name
-    return "hacker"
+    if "hacker" in avail:
+        return "hacker"
+    return avail[0] if avail else "hacker"
 
 
 def set_active_theme_name(theme_name: str) -> None:
@@ -337,12 +219,12 @@ def set_active_theme_name(theme_name: str) -> None:
 
 def register_ichnos_themes(app: App) -> None:
     """Registers all discovered .theme files and config-defined themes into the Textual application."""
-    # 1. Register all themes from the user config directory (includes seeded defaults)
+    # 1. Register all themes loaded from the user config directory
     all_themes = discover_user_themes()
     for theme in all_themes.values():
         app.register_theme(theme)
 
-    # 2. Register custom themes from config.json
+    # 2. Register any custom themes defined in config.json
     cfg = load_config()
     custom = cfg.get("custom_themes", {})
     if isinstance(custom, dict):
@@ -351,13 +233,13 @@ def register_ichnos_themes(app: App) -> None:
                 try:
                     custom_theme = Theme(
                         name=name,
-                        primary=spec.get("primary", "#8ba4b0"),
-                        secondary=spec.get("secondary", "#8992a7"),
-                        accent=spec.get("accent", "#8ea4a2"),
+                        primary=spec.get("primary", spec.get("background")),
+                        secondary=spec.get("secondary", spec.get("primary", spec.get("background"))),
+                        accent=spec.get("accent", spec.get("primary", spec.get("background"))),
                         foreground=spec.get("foreground", "#BBBBBB"),
-                        background=spec.get("background", "#0A0B0A"),
-                        surface=spec.get("surface", "#111111"),
-                        panel=spec.get("panel", "#12120f"),
+                        background=spec.get("background"),
+                        surface=spec.get("surface", spec.get("background")),
+                        panel=spec.get("panel", spec.get("background")),
                         warning=spec.get("warning", "#c29b38"),
                         error=spec.get("error", "#c96565"),
                         success=spec.get("success", "#8ea4a2"),
@@ -372,4 +254,6 @@ def register_ichnos_themes(app: App) -> None:
     try:
         app.theme = target_theme
     except Exception:
-        app.theme = "hacker"
+        avail = get_available_themes()
+        if avail:
+            app.theme = avail[0]

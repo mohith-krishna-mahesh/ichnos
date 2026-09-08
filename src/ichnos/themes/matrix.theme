@@ -1,0 +1,25 @@
+{
+  "name": "matrix",
+  "primary": "#00ff66",
+  "secondary": "#00cc55",
+  "accent": "#88ff88",
+  "foreground": "#d4ffd4",
+  "background": "#050a05",
+  "surface": "#0a140a",
+  "panel": "#0d1a0d",
+  "warning": "#d4aa00",
+  "error": "#cc3333",
+  "success": "#00ff66",
+  "dark": true,
+  "variables": {
+    "border-color": "#1b381b",
+    "border-focused": "#00ff66",
+    "border-variant": "#00cc55",
+    "text-muted": "#4d994d",
+    "text-dim": "#2e5c2e",
+    "header-bg": "#0a140a",
+    "status-bg": "#0a140a",
+    "prompt-bg": "#050a05",
+    "output-bg": "#070f07"
+  }
+}

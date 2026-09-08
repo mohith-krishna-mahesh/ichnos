@@ -1,0 +1,25 @@
+{
+  "name": "dracula",
+  "primary": "#bd93f9",
+  "secondary": "#ff79c6",
+  "accent": "#8be9fd",
+  "foreground": "#f8f8f2",
+  "background": "#1e1f29",
+  "surface": "#282a36",
+  "panel": "#21222c",
+  "warning": "#ffb86c",
+  "error": "#ff5555",
+  "success": "#50fa7b",
+  "dark": true,
+  "variables": {
+    "border-color": "#44475a",
+    "border-focused": "#bd93f9",
+    "border-variant": "#ff79c6",
+    "text-muted": "#6272a4",
+    "text-dim": "#44475a",
+    "header-bg": "#282a36",
+    "status-bg": "#21222c",
+    "prompt-bg": "#1e1f29",
+    "output-bg": "#1e1f29"
+  }
+}

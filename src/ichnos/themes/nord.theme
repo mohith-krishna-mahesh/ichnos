@@ -1,0 +1,25 @@
+{
+  "name": "nord",
+  "primary": "#88c0d0",
+  "secondary": "#81a1c1",
+  "accent": "#8fbcbb",
+  "foreground": "#eceff4",
+  "background": "#242933",
+  "surface": "#2e3440",
+  "panel": "#3b4252",
+  "warning": "#ebcb8b",
+  "error": "#bf616a",
+  "success": "#a3be8c",
+  "dark": true,
+  "variables": {
+    "border-color": "#434c5e",
+    "border-focused": "#88c0d0",
+    "border-variant": "#81a1c1",
+    "text-muted": "#d8dee9",
+    "text-dim": "#4c566a",
+    "header-bg": "#2e3440",
+    "status-bg": "#2e3440",
+    "prompt-bg": "#242933",
+    "output-bg": "#242933"
+  }
+}

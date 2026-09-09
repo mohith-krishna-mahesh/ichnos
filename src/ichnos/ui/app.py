@@ -150,6 +150,22 @@ except Exception:
     _APP_CSS = _EMBEDDED_TCSS
 
 
+# Fallback defaults for custom CSS variables defined in .theme files.
+# These are injected via get_css_variables() so the stylesheet can parse
+# successfully even before a custom Ichnos theme is activated (Textual
+# initializes the stylesheet while the default 'textual-dark' theme is
+# still active, which defines none of these).
+_CUSTOM_VAR_DEFAULTS: dict[str, str] = {
+    "text-dim": "#625e5a",
+    "header-bg": "#111111",
+    "output-bg": "#0D0E0D",
+    "border-color": "#393836",
+    "border-focused": "#8ba4b0",
+    "status-bg": "#111111",
+    "prompt-bg": "#0A0B0A",
+}
+
+
 class IchnosApp(App):
     """Interactive persistent terminal application for Ichnos."""
 
@@ -162,6 +178,18 @@ class IchnosApp(App):
         "main": MainScreen,
     }
 
+    def get_css_variables(self) -> dict[str, str]:
+        """Return CSS variables with fallback defaults for custom theme vars.
+
+        Textual calls this during App.__init__() to seed the stylesheet,
+        at which point the active theme is still 'textual-dark' (no custom
+        variables).  The fallback defaults ensure $text-dim, $header-bg, etc.
+        are always defined so the stylesheet never fails to parse.  When a
+        real Ichnos theme is later activated its values overwrite these.
+        """
+        variables = super().get_css_variables()
+        return {**_CUSTOM_VAR_DEFAULTS, **variables}
+
     def __init__(self, initial_theme: str | None = None, **kwargs):
         super().__init__(**kwargs)
         self.ui_state = UIState()
@@ -170,6 +198,9 @@ class IchnosApp(App):
         from ichnos.ui.theme import register_ichnos_themes
 
         register_ichnos_themes(self)
+        # Force the stylesheet to pick up the real theme variables now,
+        # before the event loop starts and before the first CSS parse.
+        self.stylesheet.set_variables(self.get_css_variables())
         if self.explicit_theme:
             try:
                 self.theme = self.explicit_theme

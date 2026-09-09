@@ -34,9 +34,10 @@ class IchnosStatusBar(Static):
         secondary = "#8992a7"
         warning = "#c29b38"
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
-            fg = self.app.current_theme.foreground
-            secondary = self.app.current_theme.secondary
-            warning = self.app.current_theme.warning
+            theme = self.app.current_theme
+            fg = getattr(theme, "foreground", None) or fg
+            secondary = getattr(theme, "secondary", None) or secondary
+            warning = getattr(theme, "warning", None) or warning
 
         # Left zone: Target
         if self.ui_state.active_input:

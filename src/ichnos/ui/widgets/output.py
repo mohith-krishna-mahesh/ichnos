@@ -45,13 +45,13 @@ class IchnosOutput(VerticalScroll):
 
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
             t = self.app.current_theme
-            primary = t.primary
-            secondary = t.secondary
-            accent = t.accent
-            fg = t.foreground
-            warning = t.warning
-            error = t.error
-            success = t.success
+            primary = getattr(t, "primary", None) or primary
+            secondary = getattr(t, "secondary", None) or secondary
+            accent = getattr(t, "accent", None) or accent
+            fg = getattr(t, "foreground", None) or fg
+            warning = getattr(t, "warning", None) or warning
+            error = getattr(t, "error", None) or error
+            success = getattr(t, "success", None) or success
             if hasattr(t, "variables") and t.variables:
                 muted = t.variables.get("text-muted", muted)
                 border = t.variables.get("border-color", border)

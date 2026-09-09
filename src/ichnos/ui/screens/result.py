@@ -155,9 +155,10 @@ class CandidateSelectorScreen(ModalScreen[None]):
         secondary = "#8992a7"
         fg = "#BBBBBB"
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
-            primary = self.app.current_theme.primary
-            secondary = self.app.current_theme.secondary
-            fg = self.app.current_theme.foreground
+            theme = self.app.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            secondary = getattr(theme, "secondary", None) or secondary
+            fg = getattr(theme, "foreground", None) or fg
 
         text = Text()
         text.append(f"Candidate #{index + 1}: ", style=f"bold {primary}")
@@ -386,9 +387,10 @@ class StepSelectorScreen(ModalScreen[None]):
         secondary = "#8992a7"
         fg = "#BBBBBB"
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
-            accent = self.app.current_theme.accent
-            secondary = self.app.current_theme.secondary
-            fg = self.app.current_theme.foreground
+            theme = self.app.current_theme
+            accent = getattr(theme, "accent", None) or accent
+            secondary = getattr(theme, "secondary", None) or secondary
+            fg = getattr(theme, "foreground", None) or fg
 
         text = Text()
         text.append(f"Step #{index + 1}: ", style=f"bold {accent}")

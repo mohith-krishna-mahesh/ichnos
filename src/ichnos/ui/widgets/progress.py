@@ -45,8 +45,9 @@ class IchnosProgress(Static):
         primary = "#8ba4b0"
         warning = "#c29b38"
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
-            primary = self.app.current_theme.primary
-            warning = self.app.current_theme.warning
+            theme = self.app.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            warning = getattr(theme, "warning", None) or warning
 
         frame = self.SPINNER_FRAMES[self._frame_idx]
         text = Text.from_markup(f"[bold {warning}]{frame}[/] [bold {primary}]{self._operation}[/]")

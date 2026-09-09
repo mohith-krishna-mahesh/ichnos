@@ -239,9 +239,10 @@ class IchnosApp(App):
         secondary = "#8992a7"
         accent = "#8ea4a2"
         if hasattr(self, "current_theme") and self.current_theme:
-            primary = self.current_theme.primary
-            secondary = self.current_theme.secondary
-            accent = self.current_theme.accent
+            theme = self.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            secondary = getattr(theme, "secondary", None) or secondary
+            accent = getattr(theme, "accent", None) or accent
 
         # Builtin: help [module | command]
         if cmd_verb == "help" and len(parts) >= 2:
@@ -501,9 +502,10 @@ class IchnosApp(App):
         accent = "#8ea4a2"
         fg = "#BBBBBB"
         if hasattr(self, "current_theme") and self.current_theme:
-            primary = self.current_theme.primary
-            accent = self.current_theme.accent
-            fg = self.current_theme.foreground
+            theme = self.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            accent = getattr(theme, "accent", None) or accent
+            fg = getattr(theme, "foreground", None) or fg
 
         target_name = f"{module} {subgroup}" if subgroup else module
         commands = registry.list_commands(module)
@@ -558,9 +560,10 @@ class IchnosApp(App):
         accent = "#8ea4a2"
         fg = "#BBBBBB"
         if hasattr(self, "current_theme") and self.current_theme:
-            primary = self.current_theme.primary
-            accent = self.current_theme.accent
-            fg = self.current_theme.foreground
+            theme = self.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            accent = getattr(theme, "accent", None) or accent
+            fg = getattr(theme, "foreground", None) or fg
 
         arg_hints = []
         for arg in cmd_def.args:

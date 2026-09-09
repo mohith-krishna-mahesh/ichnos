@@ -26,10 +26,11 @@ class IchnosHeader(Static):
         bg = "#0A0B0A"
         fg = "#BBBBBB"
         if hasattr(self, "app") and hasattr(self.app, "current_theme") and self.app.current_theme:
-            primary = self.app.current_theme.primary
-            secondary = self.app.current_theme.secondary
-            bg = self.app.current_theme.background
-            fg = self.app.current_theme.foreground
+            theme = self.app.current_theme
+            primary = getattr(theme, "primary", None) or primary
+            secondary = getattr(theme, "secondary", None) or secondary
+            bg = getattr(theme, "background", None) or bg
+            fg = getattr(theme, "foreground", None) or fg
 
         t = Text()
         t.append(" ICHNOS ", style=f"bold {bg} on {primary}")

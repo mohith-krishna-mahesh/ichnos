@@ -34,7 +34,7 @@ class MainScreen(Screen):
         output = self.query_one("#output-view", IchnosOutput)
         primary = "#8ba4b0"
         if hasattr(self.app, "current_theme") and self.app.current_theme:
-            primary = self.app.current_theme.primary
+            primary = getattr(self.app.current_theme, "primary", None) or primary
         output.write_line(f"[bold {primary}]ichnos>[/bold {primary}] {cmd}")
         self.app.ui_state.add_command(cmd)
 
